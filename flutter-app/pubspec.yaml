@@ -1,7 +1,7 @@
 name: valorant_boost
 description: 游戏 CPU 高频优化器 —— Flutter 桌面版（UI 层通过 CLI 驱动现有引擎）
 publish_to: 'none'
-version: 0.1.0
+version: 1.0.0
 
 environment:
   # 3.6 是硬底线：表格和说明卡用了 Color.withValues()，那是 Flutter 3.27 才有的。

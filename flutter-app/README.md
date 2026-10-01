@@ -518,7 +518,7 @@ $pat = [Text.Encoding]::Unicode.GetBytes('设亲和性失败')
 ## 仓库长什么样
 
 清理过一轮：**原来 799 MB，现在 51 MB。源码全留（还能重新编译），成品归到 `release\`
-一个文件夹里。**
+一个文件夹里 —— 而且按版本再分一层子文件夹。**
 
 ```
 D:\test\valorant-cpu-boost\              51.3 MB
@@ -534,13 +534,47 @@ D:\test\valorant-cpu-boost\              51.3 MB
 ├── ValorantBoost.exe       现役引擎成品
 ├── flutter-app\            Flutter 界面：lib\ tool\ windows\ pubspec.*
 │   └── README.md           这份文档
-└── release\                ★ 交付物都在这里
-    ├── install.exe                 11,924,992  约 11.4 MB
-    ├── uninstall.exe                   13,312  可单独发出去
-    ├── portable.zip                11,881,417  约 11.3 MB
-    ├── portable\                     27.36 MB  17 个文件
-    └── README.md                     这份文档的副本
+└── release\                ★ 交付物都在这里，一个版本一个子文件夹
+    └── v1.0\               版本号来自 installer\Vcb.cs 的 AppVersion
+        ├── install.exe               11,925,504  约 11.4 MB
+        ├── uninstall.exe                 13,312  可单独发出去
+        ├── portable.zip              11,881,417  约 11.3 MB
+        ├── portable\                   27.36 MB  17 个文件
+        └── README.md                   这份文档的副本
 ```
+
+### `release\` 的版本目录（`v1.0` / `v1.1` / …）
+
+**目录名由版本号自动推出，不用手传参数。** 版本号只有一个来源：
+`installer\Vcb.cs:45` 的 `internal const string AppVersion = "1.0.0";`。
+
+规则是**去掉结尾那一个 `.0`**：
+
+| `Vcb.AppVersion` | 目录名 | 说明 |
+|---|---|---|
+| `1.0.0` | `v1.0` | 当前 |
+| `1.1.0` | `v1.1` | 改了功能就升中间那位 |
+| `1.0.1` | `v1.0.1` | ★ **补丁版不会撞进 `v1.0`** |
+| `2.0.0` | `v2.0` | |
+
+**为什么不是简单地取 `major.minor`**：那样 `1.0.1` 会被算成 `v1.0`，于是
+**静默覆盖掉已经发出去的 1.0**，而 `install.exe` 是同名文件、没有任何提示。
+去掉「一个」结尾的 `.0` 就不会有这个问题 —— `1.0.1` 老老实实变成 `v1.0.1`。
+
+实现是两份构建脚本里各一个 `Get-AppVersionTag([string]$RepoRoot)`（刻意不抽公共模块，
+和这个项目已有的「`UiTaskName` 在两处各写一份」是同一个惯例），做三件事：读
+`Vcb.cs` → 正则 `AppVersion\s*=\s*"([0-9][0-9.]*)"` → 去掉一个结尾 `.0` 并加 `v` 前缀。
+读不到文件或匹配不上**直接 `throw`**，不会默默退回到某个默认目录。
+
+- `flutter-app\tool\make-portable.ps1`：`$Out` 默认 = `<仓库根>\release\<版本>\portable`，
+  加 `-Zip` 时 zip 跟着落在 `<仓库根>\release\<版本>\portable.zip`
+- `flutter-app\tool\make-installer.ps1`：`$Portable` 和 `$Out` 都按同一个版本号推出来
+
+**★ 还改了 `flutter-app\pubspec.yaml:4` 的 `version:`，从 `0.1.0` 改成 `1.0.0`** ——
+它原来是自说自话的，跟 `Vcb.AppVersion` 对不上。现在两处必须一起改。
+
+**发新版本时**：改 `Vcb.cs` 的 `AppVersion` → 跑一次 `make-installer.ps1` →
+`release\` 下自动多出一个新目录，旧版本原样留着。
 
 **删掉的**：
 
@@ -560,13 +594,18 @@ D:\test\valorant-cpu-boost\              51.3 MB
 一次完整的 `flutter build windows --release`（约 30 秒，外加重新生成约 260 MB 引擎缓存）。
 想省这一步，就别删 `ephemeral\`。
 
-**★ 改过的路径**：`flutter-app\tool\make-portable.ps1:37` 的 `$Out`、
-`make-installer.ps1` 的 `$Portable` / `$Out` 现在默认指向 `release\` —— 仓库顶层不会再
-冒出 `portable\` 和 `dist\`。`make-installer.ps1` 的中间产物（`payload.zip`、
-`run-ui.exe`）挪到了 `%TEMP%`：原来写在输出目录里，而 `payload.zip` 和 `portable.zip`
-字节完全相同（都是 11,881,417），等于在交付目录里放两份 11.3 MB。
-`make-installer.ps1` 调 `make-portable.ps1` 时补了 `-Zip`，一条命令同时刷新
-`release\portable\` 和 `release\portable.zip`。
+**★ 改过的路径**：`flutter-app\tool\make-portable.ps1` 的 `$Out`、
+`make-installer.ps1` 的 `$Portable` / `$Out` 现在都默认指向
+`release\<版本号>\`（版本号从 `installer\Vcb.cs` 的 `AppVersion` 自动推出，
+见上面「`release\` 的版本目录」）—— 仓库顶层不会再冒出 `portable\` 和 `dist\`。
+`make-installer.ps1` 的中间产物（`payload.zip`、`run-ui.exe`）挪到了 `%TEMP%`：
+原来写在输出目录里，而 `payload.zip` 和 `portable.zip` 字节完全相同（都是 11,881,417），
+等于在交付目录里放两份 11.3 MB。`make-installer.ps1` 调 `make-portable.ps1` 时补了
+`-Zip`，一条命令同时刷新 `release\<版本号>\portable\` 和 `release\<版本号>\portable.zip`。
+
+**★ 顺手删掉的重复**：`release\` 下原来还有个手工建的 `优化器1.0\` 和 `优化器1.0.zip`，
+里面**只有一条 `优化器1.0/install.exe`，和当时还平铺在 `release\` 根下的 `install.exe` 字节完全相同** ——
+22.7 MB 纯重复，已删。`release\` 因此从 72.83 MB 降到 50.12 MB。
 
 **★ 排查这条清理时踩的坑**：清理脚本里**不能定义名为 `Kill` 的函数** ——
 PowerShell 的命令解析顺序是 **别名 > 函数 > cmdlet**，而 `kill` 是 `Stop-Process`
@@ -581,9 +620,10 @@ PowerShell 的命令解析顺序是 **别名 > 函数 > cmdlet**，而 `kill` �
 powershell -ExecutionPolicy Bypass -File tool\make-portable.ps1 -Zip
 ```
 
-产物在 `<仓库根>\release\portable\`（约 27 MB，17 个文件），加 `-Zip` 再压一个
-`<仓库根>\release\portable.zip`。**两个都写进 `release\`，仓库顶层不会再冒出
-`portable\` 和 `dist\`** —— 见下面「仓库长什么样」。
+产物在 `<仓库根>\release\<版本号>\portable\`（约 27 MB，17 个文件），加 `-Zip` 再压一个
+`<仓库根>\release\<版本号>\portable.zip`。**两个都写进 `release\` 下的版本目录，
+仓库顶层不会再冒出 `portable\` 和 `dist\`** —— 版本号怎么来的见上面
+「`release\` 的版本目录」，目录结构见「仓库长什么样」。
 拷过去、解压、双击 `valorant_boost.exe` 就能用 —— **不需要装 Flutter、不需要装
 VC++ 运行库、不需要管理员权限**（只有点「开启守护」那一下会弹一次 UAC）。
 
@@ -638,7 +678,7 @@ r'D:\test\valorant-cpu-boost\ValorantBoost.exe',   // ← 只有我这台机器�
 | 需要 | 为什么 |
 |---|---|
 | Windows 10 1903+ / Windows 11 | 引擎是 .NET Framework 4.x 程序（exe 里有 `mscoree.dll`），1903 起系统自带 4.8 |
-| 上面那个 `release\portable\` 文件夹 | 其他什么都不用装 |
+| 上面那个 `release\<版本号>\portable\` 文件夹 | 其他什么都不用装 |
 | 一次 UAC 同意 | 改电源方案要管理员；引擎自己 `psi.Verb = "runas"` 提权，所以 exe 本身不用带管理员清单 |
 
 **如果对方也想装守护**：在游戏专项页点「开启守护」，它会把当时的文件夹路径写进计划任务。
@@ -646,15 +686,15 @@ r'D:\test\valorant-cpu-boost\ValorantBoost.exe',   // ← 只有我这台机器�
 
 ## 一键安装（`install.exe`）
 
-`release\portable\` 那套要手动拷贝、手动点开启守护、每次启动还弹一次 UAC。打包成单个
+`release\<版本号>\portable\` 那套要手动拷贝、手动点开启守护、每次启动还弹一次 UAC。打包成单个
 `install.exe` 就是为了免掉这些。生成它：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tool\make-installer.ps1
-# 产物：<仓库根>\release\install.exe   约 11.4 MB
+# 产物：<仓库根>\release\<版本号>\install.exe   约 11.4 MB
 ```
 
-它把整个 `release\portable\` 压进 `payload.zip` 内嵌进 exe（`/resource:payload.zip,Payload`），
+它把整个 `release\<版本号>\portable\` 压进 `payload.zip` 内嵌进 exe（`/resource:payload.zip,Payload`），
 所以**对方只要这一个文件**，双击即可。
 
 ### 「装一次 UAC，之后永不弹」是怎么做到的
@@ -795,14 +835,14 @@ install.exe --uninstall  # 卸载（老入口保留，老快捷方式和用户�
 删掉会让用户丢掉回退能力。实测：造一个假的 `boost-backup.txt` + 一个 `leftover.dll`
 覆盖安装，前者内容原样保留、后者被清掉。
 
-### 绿色版怎么清理（`release\portable\cleanup.cmd`）
+### 绿色版怎么清理（`release\<版本号>\portable\cleanup.cmd`）
 
-`release\portable\` 那套不用安装，但在界面里点过「开启守护」之后同样会留下两样东西：计划任务
+`release\<版本号>\portable\` 那套不用安装，但在界面里点过「开启守护」之后同样会留下两样东西：计划任务
 `ValorantBoostWatcher` 和一条 Defender 排除项。收回去的办法是文件夹里的 `cleanup.cmd`：
 
 ```powershell
 # 双击也行 —— 它会自己请求提权
-D:\test\valorant-cpu-boost\release\portable\cleanup.cmd
+D:\test\valorant-cpu-boost\release\v1.0\portable\cleanup.cmd
 ```
 
 它做五件事：关掉在跑的界面和守护 → 删遗留的 `ValorantBoostUI` → 让引擎自己
@@ -824,7 +864,7 @@ D:\test\valorant-cpu-boost\release\portable\cleanup.cmd
 | `cleanup.cmd` | **纯 ASCII，无 BOM** | cmd.exe 按控制台代码页（这里是 936）读 `.cmd`，中文会乱码；而且带 BOM 会让第一行 `@echo off` 直接失效 |
 | `cleanup.ps1` | **UTF-8 带 BOM** | PowerShell 5.1 把没有 BOM 的 `.ps1` 按 GBK 解码，中文全变乱码 |
 
-`tool\make-portable.ps1` 的 `[6/6]` 步会把这两个文件拷进 `release\portable\` 并
+`tool\make-portable.ps1` 的 `[6/6]` 步会把这两个文件拷进 `release\<版本号>\portable\` 并
 **顺手校验编码**（`.cmd` 必须 0 个非 ASCII 字节且无 BOM，`.ps1` 必须有 BOM），不对就黄字警告。
 
 **★ 踩到的坑：`edit` 之类的编辑器会悄悄吃掉 BOM。** 改完 `cleanup.ps1` 一定要补回来，

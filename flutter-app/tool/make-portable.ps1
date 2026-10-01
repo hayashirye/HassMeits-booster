@@ -34,9 +34,22 @@ $appRoot = Split-Path -Parent $PSScriptRoot          # ...\flutter-app
 $release = Join-Path $appRoot 'build\windows\x64\runner\Release'
 $repoRoot = Split-Path -Parent $appRoot              # ...\valorant-cpu-boost
 
-#  The portable folder lives inside release\ alongside install.exe, so the
-#  whole deliverable is one folder instead of two.
-if (-not $Out) { $Out = Join-Path $repoRoot 'release\portable' }
+#  Each release gets its own version folder: release\v1.0\, release\v1.1\ ...
+#  The tag is read out of installer\Vcb.cs -- the same string the exes report
+#  -- so the folder name can never disagree with what is inside it.
+function Get-AppVersionTag([string]$RepoRoot) {
+    $vcb = Join-Path $RepoRoot 'installer\Vcb.cs'
+    if (-not (Test-Path -LiteralPath $vcb)) { throw "Vcb.cs not found: $vcb" }
+    $m = [regex]::Match((Get-Content -LiteralPath $vcb -Raw), 'AppVersion\s*=\s*"([0-9][0-9.]*)"')
+    if (-not $m.Success) { throw "AppVersion not found in $vcb" }
+    $v = $m.Groups[1].Value
+    #  Drop ONE trailing ".0" so 1.0.0 -> v1.0 and 1.1.0 -> v1.1, while a
+    #  patch release (1.0.1) keeps its own folder instead of overwriting v1.0.
+    if ($v.EndsWith('.0')) { $v = $v.Substring(0, $v.Length - 2) }
+    return 'v' + $v
+}
+
+if (-not $Out) { $Out = Join-Path $repoRoot ("release\{0}\portable" -f (Get-AppVersionTag $repoRoot)) }
 if (-not $Engine) { $Engine = Join-Path $repoRoot 'ValorantBoost.exe' }
 
 Write-Host '=== make-portable ===' -ForegroundColor Cyan

@@ -48,11 +48,25 @@ $here = Split-Path -Parent $MyInvocation.MyCommand.Path          # flutter-app\t
 $flutterApp = Split-Path -Parent $here                            # flutter-app
 $root = Split-Path -Parent $flutterApp                            # repo root
 
-#  Everything the user actually needs lands in ONE folder: <root>\release.
-#  The portable folder lives inside it, so the two build scripts agree on
-#  where things are without either one having to be told.
-if (-not $Portable) { $Portable = Join-Path $root 'release\portable' }
-if (-not $Out)      { $Out      = Join-Path $root 'release' }
+#  Each release gets its own version folder: release\v1.0\, release\v1.1\ ...
+#  The tag is read out of installer\Vcb.cs -- the same string the exes report
+#  -- so the folder name can never disagree with what is inside it. This
+#  script and make-portable.ps1 derive it the exact same way.
+function Get-AppVersionTag([string]$RepoRoot) {
+    $vcb = Join-Path $RepoRoot 'installer\Vcb.cs'
+    if (-not (Test-Path -LiteralPath $vcb)) { throw "Vcb.cs not found: $vcb" }
+    $m = [regex]::Match((Get-Content -LiteralPath $vcb -Raw), 'AppVersion\s*=\s*"([0-9][0-9.]*)"')
+    if (-not $m.Success) { throw "AppVersion not found in $vcb" }
+    $v = $m.Groups[1].Value
+    #  Drop ONE trailing ".0" so 1.0.0 -> v1.0 and 1.1.0 -> v1.1, while a
+    #  patch release (1.0.1) keeps its own folder instead of overwriting v1.0.
+    if ($v.EndsWith('.0')) { $v = $v.Substring(0, $v.Length - 2) }
+    return 'v' + $v
+}
+
+$verTag = Get-AppVersionTag $root
+if (-not $Portable) { $Portable = Join-Path $root ("release\{0}\portable" -f $verTag) }
+if (-not $Out)      { $Out      = Join-Path $root ("release\{0}" -f $verTag) }
 
 $installerDir = Join-Path $root 'installer'
 $launcherCs   = Join-Path $installerDir 'Launcher.cs'
