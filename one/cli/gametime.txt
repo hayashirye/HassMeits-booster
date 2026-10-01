@@ -1,0 +1,20 @@
+游戏专项页各步骤耗时
+--------------------------------------------------
+游戏：无畏契约
+
+第一遍（含 JIT 和首次磁盘缓存）
+  FoundExe 找主程序                8 ms
+  GpuPref.Get 读显卡绑定           0 ms
+  GameAudit.Run 查配置             16 ms   5 项
+  AutoStart.IsInstalled 起进程     20 ms   True
+  CorePin.PinnedNames 读名单       10 ms   0 类
+  ResolveConfig 找配置文件         5 ms
+
+第二遍（热路径，界面实际感受接近这一遍）
+  FoundExe 找主程序                3 ms
+  GpuPref.Get 读显卡绑定           0 ms
+  GameAudit.Run 查配置             5 ms   5 项
+  AutoStart.IsInstalled 起进程     1 ms   True
+  CorePin.PinnedNames 读名单       1 ms   0 类
+  ResolveConfig 找配置文件         5 ms
+

@@ -1,0 +1,16 @@
+===== 游戏专项检查：无畏契约 =====
+主程序     : D:\valorant cn\Tencent Games\VALORANT\live\ShooterGame\Binaries\Win64\VALORANT-Win64-Shipping.exe
+显卡绑定   : 高性能（独显）
+进程名     : VALORANT-Win64-Shipping
+推荐档位   : 竞技
+说明       : 帧率极高、单核敏感，插电时钉死高频收益最大。
+
+配置文件   : 【港服】C:\Users\hayashi\AppData\Local\VALORANT\Saved\Config\a8c1f112-cee3-5562-8d93-2d9f853ca97d-ap\WindowsClient\GameUserSettings.ini
+
+  帧率上限  |  无限制  |  符合  |  锁帧会直接压低上限，竞技向建议无限制
+  垂直同步  |  False  |  符合  |  开着会把帧率锁到刷新率并增加输入延迟
+  显示模式  |  无边框窗口  |  注意  |  无边框窗口要经过桌面合成器 dwm 合成，实测能吃掉三成单核 —— 改成独占全屏是最划算的一条
+  渲染分辨率  |  1920x1080  |  符合  |  与上次确认一致
+  画质档位  |  9 / 10 项在最高档  |  不符合  |  竞技向常规做法是画质全低、纹理单独调中
+
+不符合 1 项，值得注意 1 项。

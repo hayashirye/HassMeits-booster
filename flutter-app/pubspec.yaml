@@ -1,0 +1,25 @@
+name: valorant_boost
+description: 游戏 CPU 高频优化器 —— Flutter 桌面版（UI 层通过 CLI 驱动现有引擎）
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  # 3.6 是硬底线：表格和说明卡用了 Color.withValues()，那是 Flutter 3.27 才有的。
+  # 装个新的稳定版就行（flutter --version 看一眼）。
+  sdk: '>=3.6.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # ★ 故意一个第三方包都没有。
+  # 原先想用 window_manager 设窗口标题/最小尺寸，但那份代码没法在这台机器上验证，
+  # 而一个用不上的依赖只要拉不下来就会让 flutter pub get 整个失败 —— 不划算。
+  # 窗口用系统默认尺寸即可；想要的话自己加，见 README 的说明。
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

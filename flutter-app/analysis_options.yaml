@@ -1,0 +1,10 @@
+analyzer:
+  exclude:
+    - build/**
+    - windows/**
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    # 这个项目的注释量很大，有些 API 名字就是很长的，不必强求
+    constant_identifier_names: false

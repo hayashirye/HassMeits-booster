@@ -1,0 +1,28 @@
+能效核掩码 = 0x3003FC   （逻辑核 2-9、20-21）
+性能核掩码 = 0xFFC03   （逻辑核 0-1、10-19）
+
+进程名                 实例  当前亲和性
+--------------------------------------------------
+  leigod               24292 0x3FFFFF  （全部核心）
+  leigod               16288 0x3FFFFF  （全部核心）
+  leigod               4992  0x3FFFFF  （全部核心）
+  leigod               22960 0x3FFFFF  （全部核心）
+  leigod               21576 0x3FFFFF  （全部核心）
+  leishensdk           11952 0x3FFFFF  （全部核心）
+  wallpaper64          8280  0x3FFFFF  （全部核心）
+  steamwebhelper       14696 0x3FFFFF  （全部核心）
+  steamwebhelper       18668 0x3FFFFF  （全部核心）
+  steamwebhelper       12388 0x3FFFFF  （全部核心）
+  steamwebhelper       20408 0x3FFFFF  （全部核心）
+  steamwebhelper       19512 0x3FFFFF  （全部核心）
+  steamwebhelper       19480 0x3FFFFF  （全部核心）
+  steamwebhelper       18620 0x3FFFFF  （全部核心）
+  steamwebhelper       8816  0x3FFFFF  （全部核心）
+  gamebarpresencewriter 3352  0x3FFFFF  （全部核心）
+  msedgewebview2       17524 0x3FFFFF  （全部核心）
+  msedgewebview2       17516 0x3FFFFF  （全部核心）
+  msedgewebview2       14724 0x3FFFFF  （全部核心）
+  msedgewebview2       17964 0x3FFFFF  （全部核心）
+  msedgewebview2       15520 0x3FFFFF  （全部核心）
+  msedgewebview2       17744 0x3FFFFF  （全部核心）
+  （现在没有进程被压到能效核）

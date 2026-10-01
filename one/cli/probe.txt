@@ -1,0 +1,17 @@
+目标进程   : VALORANT-Win64-Shipping
+进程位数   : 64 位
+当前用户   : DESKTOP-DSKFHKO\hayashi
+工作目录   : D:\test
+SessionId  : 1
+交互式     : True
+进程总数   : 253
+对照组     : explorer=1 / dwm=1 / svchost=90
+
+第 1 次  GetProcessesByName=0   GetProcesses过滤=0   WMI=0
+第 2 次  GetProcessesByName=0   GetProcesses过滤=0   WMI=0
+第 3 次  GetProcessesByName=0   GetProcesses过滤=0   WMI=0
+第 4 次  GetProcessesByName=0   GetProcesses过滤=0   WMI=0
+第 5 次  GetProcessesByName=0   GetProcesses过滤=0   WMI=0
+第 6 次  GetProcessesByName=0   GetProcesses过滤=0   WMI=0
+第 7 次  GetProcessesByName=0   GetProcesses过滤=0   WMI=0
+第 8 次  GetProcessesByName=0   GetProcesses过滤=0   WMI=0
