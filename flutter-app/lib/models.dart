@@ -133,6 +133,32 @@ class GameInfo {
   int get warnCount => checks.where((c) => c.verdict == '注意').length;
 }
 
+/// 游戏显示名。
+///
+/// ★ 以前这两个名字是以三元表达式的形式散在各处的 ——
+///   `key == 'apex' ? 'Apex Legends' : '无畏契约'` 这样的句子写了两遍，
+///   结果就是加第三个游戏时，鸣潮会被显示成「VALORANT」。
+///   现在集中到这两张表里，加游戏只改这里 + `one\Core.cs` 里的 GameProfile。
+///
+/// 长名给窗口标题和专项页用，短名给侧栏副标题用（那行字很窄）。
+/// 内容要和引擎 `Games.Build()` 里的 `Name` / `Sub` 对得上。
+const Map<String, String> kGameLongName = {
+  'valorant': '无畏契约',
+  'apex': 'Apex Legends',
+  'wuwa': '鸣潮',
+};
+
+const Map<String, String> kGameShortName = {
+  'valorant': 'VALORANT',
+  'apex': 'Apex',
+  'wuwa': 'Wuthering Waves',
+};
+
+/// 查不到就原样返回 key。宁可显示 `wuwa` 也不能显示成别的游戏 ——
+/// 名字错了用户会以为程序认错了游戏。
+String gameLongName(String key) => kGameLongName[key] ?? key;
+String gameShortName(String key) => kGameShortName[key] ?? key;
+
 /// 给数字加千位分隔符：17165254656 → `17,165,254,656`。
 ///
 /// 性能测试的数字有 11 位，不分节根本读不出量级；C# 那边

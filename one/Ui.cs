@@ -2411,7 +2411,16 @@ namespace Vcb
             {
                 foreach (string pn in g.Procs)
                 {
-                    if (ProcSnap.Count(snap, pn) > 0) { name = g.Name; return true; }
+                    List<int> pids = ProcSnap.Pids(snap, pn);
+                    if (pids.Count == 0) continue;
+                    // ★ 进程名对上还不够。鸣潮的主程序叫 Client-Win64-Shipping ——
+                    //   那是【虚幻引擎的默认名】，几十个游戏共用。只看名字的话，
+                    //   随便开哪个 UE 游戏都会被认成鸣潮：守护对着别人的游戏优化，
+                    //   界面上还显示成鸣潮。配了 PathHint 的游戏必须再核对一次完整路径。
+                    //   （无畏契约和 Apex 的名字够独特，PathHint 是空的，不多花这一趟。）
+                    if (g.PathHint.Length > 0 && !Games.AnyPathHas(pids, g.PathHint)) continue;
+                    name = g.Name;
+                    return true;
                 }
             }
             return false;
@@ -2693,6 +2702,10 @@ namespace Vcb
                     || cmd == "pin" || cmd == "unpin" || cmd == "pinstat"
                     || cmd == "gametime"
                     || cmd == "show"
+                    || cmd == "psoclean"
+                    || cmd == "psodry"
+                    || cmd == "engini"
+                    || cmd == "enginirevert"
                     || cmd == "probe")
                 {
                     string arg = null;
@@ -2747,6 +2760,12 @@ namespace Vcb
                 if (cmd == "check") return Engine.Check().Text;
                 if (cmd == "bench") return CmdBench(arg);
                 if (cmd == "audit") return CmdAudit(arg);
+                if (cmd == "psoclean") return CmdPsoClean(arg, false);
+                if (cmd == "psodry") return CmdPsoClean(arg, true);
+                // Engine.ini 的进阶项（目前只有锐化那一项）。跟 psoclean 一样，
+                // 写入和还原必须是两个命令名 —— CLI 只认一个位置参数。
+                if (cmd == "engini") return EngIni.Apply(Games.Find(arg == null ? "" : arg.Trim()));
+                if (cmd == "enginirevert") return EngIni.Revert(Games.Find(arg == null ? "" : arg.Trim()));
                 if (cmd == "gametime") return CmdGameTime(arg);
                 if (cmd == "autocheck") return CmdWatchProbe();
                 if (cmd == "probe") return CmdProbe();
@@ -2986,6 +3005,24 @@ namespace Vcb
             sb.AppendLine("");
             sb.AppendLine("不符合 " + bad + " 项，值得注意 " + warn + " 项。");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// 清理旧版着色器预缓存。参数就是游戏 key，一个词。
+        ///
+        /// ★ 为什么分成两个命令名（psodry / psoclean）而不是 `psoclean wuwa dry`：
+        ///   命令行解析在上面那个 for 循环里 —— 它【只留最后一个非 -- 开头的参数】，
+        ///   所以 `psoclean wuwa dry` 传进来的 arg 是 "dry"，不是 "wuwa"，
+        ///   Games.Find("dry") 找不到就退回第一个游戏（无畏契约），删错目录。
+        ///   这个坑我踩过一次（预览时打出了 VALORANT 的路径），所以改成两个名字，
+        ///   各自只吃一个参数，跟现有 CLI 的模型严丝合缝。
+        ///
+        /// 界面上应当先跑 psodry 把清单摆给用户看，确认了再跑 psoclean —— 删文件
+        /// 这一步不该在用户没看过清单的情况下发生。真删的逻辑见 Core.cs 的 Pso.Clean。
+        /// </summary>
+        private static string CmdPsoClean(string arg, bool dry)
+        {
+            return Pso.Clean(Games.Find(arg == null ? "" : arg.Trim()), dry);
         }
 
         /// <summary>

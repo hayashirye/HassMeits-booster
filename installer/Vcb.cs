@@ -42,7 +42,7 @@ internal static class Vcb
     // ── 常量 ────────────────────────────────────────────────────────────
     // ★ 这几个名字和 Installer.cs 里的是同一套，改一处必须改两处 —— 所以只留一份。
     internal const string AppName         = "游戏 CPU 高频优化器";
-    internal const string AppVersion      = "1.0.0";
+    internal const string AppVersion      = "1.1.0";
     internal const string AppPublisher    = "ValorantCpuBoost";
     internal const string AppId           = "ValorantCpuBoost";
 

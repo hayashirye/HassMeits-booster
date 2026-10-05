@@ -11,6 +11,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_state.dart';
+import 'models.dart';
 import 'seed.dart';
 import 'theme.dart';
 import 'widgets/nav_item.dart';
@@ -271,16 +272,18 @@ class _ShellState extends State<Shell> with SingleTickerProviderStateMixin {
             Text(
               widget.st.currentGame.key.isEmpty
                   ? 'CPU 高频优化器'
-                  : '${widget.st.currentGame.key == 'apex' ? 'Apex' : 'VALORANT'} · CPU 高频优化器',
+                  : '${gameShortName(widget.st.currentGame.key)} · CPU 高频优化器',
               style: TextStyle(color: T.fgFaint, fontSize: T.fsTiny),
             ),
             const SizedBox(height: 14),
 
-            // ---- 游戏切换：M3 里「二选一」就该用 SegmentedButton ----
+            // ---- 游戏切换：M3 里「多选一」就该用 SegmentedButton ----
+            // 加游戏时：这里加一条 ButtonSegment，名字表在 models.dart。
             SegmentedButton<String>(
               segments: const [
                 ButtonSegment(value: 'valorant', label: Text('无畏契约')),
                 ButtonSegment(value: 'apex', label: Text('Apex')),
+                ButtonSegment(value: 'wuwa', label: Text('鸣潮')),
               ],
               selected: {widget.st.gameKey},
               showSelectedIcon: false,

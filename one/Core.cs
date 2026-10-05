@@ -1162,6 +1162,13 @@ namespace Vcb
         public string Tab = "";     // 侧栏切换按钮上的短名（Name 太长会被 80px 的按钮裁成 "pex Legend"）
         public string[] Exes = new string[0];      // 主程序候选路径，取第一个真实存在的
         public string[] Procs = new string[0];     // 进程名（不含 .exe），给监控用
+        // ★ 进程名不够独特时的第二道判据：非空则要求「正在跑的那个进程的完整路径」
+        //   里含这个片段，才算这个游戏在跑。
+        //   为什么需要它：鸣潮的主程序叫 Client-Win64-Shipping.exe —— 这是虚幻引擎的
+        //   默认名，几十个游戏都叫这个。光看名字，随便开一个 UE 游戏都会被认成鸣潮，
+        //   守护会对着别人的游戏做优化，界面上还会显示成鸣潮。
+        //   无畏契约和 Apex 的名字都够独特（VALORANT-Win64-Shipping / r5apex），留空即可。
+        public string PathHint = "";
         // 客户端启动器的进程名。反作弊会保护游戏主程序：Vanguard 下
         // Process.MainModule.FileName 和 WMI 的 ExecutablePath 读回来都是空字符串，
         // 但启动器（RiotClientServices）不受保护，拿它判断现在是哪个客户端。
@@ -1239,6 +1246,53 @@ namespace Vcb
             a.RecMode = "competitive";
             a.Tip = "同时吃满 CPU 和显卡，笔记本上要给 GPU 留瓦数。";
             L.Add(a);
+
+            // ── 鸣潮（Wuthering Waves，库洛 Kuro）────────────────────────────
+            // 三个和无畏契约/Apex 都不一样的地方，都踩过：
+            //   ① 主程序叫 Client-Win64-Shipping.exe —— 这是虚幻引擎的默认名，
+            //      几十个游戏共用。所以必须配 PathHint 做二次确认，否则随便开一个
+            //      UE 游戏都会点亮鸣潮那一页。
+            //   ② 配置写在【安装目录】里（<本体>\Client\Saved\Config\WindowsNoEditor\），
+            //      不在 %LOCALAPPDATA%，也不在「我的文档」。
+            //   ③ 启动器和本体是分开装的：本机启动器在 D:\Wuthering Waves，
+            //      本体在 E:\Wuthering Waves Game。本体目录名固定，装在哪个盘不一定。
+            // ★ ConfigRoots 故意留空：ResolveConfig 里那套 ConfigRoots 逻辑是按
+            //   无畏契约写的（Collect 会去找 <root>\<账号>\WindowsClient\<文件>），
+            //   鸣潮没有「账号目录 + WindowsClient」这层。留空就走到最后那条兜底，
+            //   直接返回 ConfigPath —— 正是我们要的。填了反而会覆盖成错的。
+            GameProfile w = new GameProfile();
+            w.Key = "wuwa";
+            w.Name = "鸣潮";
+            w.Sub = "Wuthering Waves";
+            w.Tab = "鸣潮";
+            string[] wdrv = new string[] { "C:", "D:", "E:", "F:", "G:", "H:" };
+            List<string> wexe = new List<string>();
+            string wcfg = "";
+            foreach (string drv in wdrv)
+            {
+                string root = drv + "\\Wuthering Waves Game";
+                wexe.Add(root + "\\Client\\Binaries\\Win64\\Client-Win64-Shipping.exe");
+                if (wcfg.Length == 0 &&
+                    File.Exists(root + "\\Client\\Saved\\Config\\WindowsNoEditor\\GameUserSettings.ini"))
+                {
+                    wcfg = root + "\\Client\\Saved\\Config\\WindowsNoEditor\\GameUserSettings.ini";
+                }
+            }
+            // 一块盘都没探到（还没装、或者装在别的盘符）也留一个合理的默认值，
+            // 页面会照常显示「找不到配置文件」而不是崩掉。
+            if (wcfg.Length == 0)
+                wcfg = "E:\\Wuthering Waves Game\\Client\\Saved\\Config\\WindowsNoEditor\\GameUserSettings.ini";
+            w.Exes = wexe.ToArray();
+            w.Procs = new string[] { "Client-Win64-Shipping" };
+            w.PathHint = "Wuthering Waves";   // ★ 没有它，「鸣潮在跑」会被认成任意 UE 游戏
+            // ClientProcs 留空：启动器叫 launcher.exe，这名字比主程序还通用，
+            // 拿它判断只会引入更多误报。主程序不受反作弊保护，不必走启动器那条路。
+            w.ConfigPath = wcfg;
+            w.ConfigLabel = "GameUserSettings.ini";
+            w.RecMode = "competitive";
+            w.Tip = "虚幻引擎 4.26。配置在安装目录里（不在 %LOCALAPPDATA%），"
+                  + "画质设置会跟账号走；Engine.ini 里的进阶项才是本地说了算的。";
+            L.Add(w);
 
             return L;
         }
@@ -1431,6 +1485,36 @@ namespace Vcb
                 catch { }
             }
             return "";
+        }
+
+        // ── PathHint 用到的两个小工具 ────────────────────────────────────────
+        // 为什么要单独写：Process.MainModule.FileName 是全套操作里最贵的一步
+        // （Vanguard 保护下要 789 ms），所以只在对上进程名之后才调用，
+        // 而且只在 GameProfile.PathHint 非空时才走这条路。
+        // 守护每 4 秒查一次，但「没有游戏在跑」时这里一次都不会被调到。
+
+        /// <summary>某个 pid 对应的完整 exe 路径；读不到（权限/已退出）返回空串。</summary>
+        public static string PathOfPid(int pid)
+        {
+            try
+            {
+                System.Diagnostics.Process p = System.Diagnostics.Process.GetProcessById(pid);
+                try { return p.MainModule.FileName; }
+                finally { p.Dispose(); }
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>这些 pid 里，有没有哪一个的完整路径含 hint。用于 PathHint 判定。</summary>
+        public static bool AnyPathHas(List<int> pids, string hint)
+        {
+            if (pids == null || hint == null || hint.Length == 0) return false;
+            foreach (int pid in pids)
+            {
+                string f = PathOfPid(pid);
+                if (f.Length > 0 && f.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            return false;
         }
     }
 
@@ -1628,7 +1712,7 @@ namespace Vcb
                     (qn > 0 && hi * 2 >= qn) ? "不符合" : "符合",
                     "竞技向常规做法是画质全低、纹理单独调中"));
             }
-            else
+            else if (g.Key == "apex")
             {
                 // ══ 显示 ══════════════════════════════════════════════════
                 int fs = I(d, "setting.fullscreen");
@@ -1805,8 +1889,329 @@ namespace Vcb
                     (kn > 0 && on * 2 >= kn) ? "不符合" : "符合",
                     "这十项是 Apex 里最吃性能的开关，竞技向常规做法是只留纹理，其余全关"));
             }
+            else if (g.Key == "wuwa")
+            {
+                // 鸣潮是虚幻引擎 4.26，键名是无畏契约那套 UE ini 写法（不是 Apex 的
+                // Source cfg），但画质项和无畏契约【并不通用】—— 见下面「画质档位」。
+                string dir = Path.GetDirectoryName(cfg);
+                string saved = (dir != null && Path.GetDirectoryName(dir) != null)
+                    ? Path.GetDirectoryName(Path.GetDirectoryName(dir)) : "";
+
+                // ══ 显示 ══════════════════════════════════════════════════
+                int fr = I(d, "FrameRateLimit");
+                string frTxt, frVer, frAdv;
+                if (fr < 0) { frTxt = "读不到"; frVer = "读不到"; frAdv = ""; }
+                else if (fr == 0) { frTxt = "无限制"; frVer = "符合"; frAdv = "不锁帧，让显卡和 CPU 自己跑满"; }
+                else
+                {
+                    frTxt = fr + " FPS"; frVer = "注意";
+                    frAdv = "锁在 " + fr + "。屏幕刷新率比这高的话，多出来的帧是白给的；"
+                          + "鸣潮没有竞技射击那么吃延迟，锁帧换稳定也说得过去 —— 按屏幕来";
+                }
+                L.Add(new GameCheck("帧率上限", frTxt, frVer, frAdv));
+
+                string vs = S(d, "bUseVSync");
+                L.Add(new GameCheck("垂直同步", vs.Length > 0 ? vs : "读不到",
+                    vs == "False" ? "符合" : "不符合",
+                    vs == "False" ? "关着" : "开着会把帧率锁到刷新率并增加输入延迟"));
+
+                int fm = I(d, "FullscreenMode");
+                string fmTxt = fm == 0 ? "独占全屏" : (fm == 1 ? "无边框窗口" : (fm == 2 ? "窗口" : "读不到"));
+                L.Add(new GameCheck("显示模式", fmTxt, fm == 0 ? "符合" : "注意",
+                    fm == 0 ? "独占全屏，绕过了桌面合成器，延迟最低"
+                            : "无边框窗口要经过桌面合成器 dwm 合成，实测能吃掉三成单核"
+                              + " —— 改成独占全屏是最划算的一条"));
+
+                int rx = I(d, "ResolutionSizeX"), ry = I(d, "ResolutionSizeY");
+                int ux = I(d, "LastUserConfirmedResolutionSizeX"), uy = I(d, "LastUserConfirmedResolutionSizeY");
+                bool resSame = (rx == ux && ry == uy);
+                L.Add(new GameCheck("渲染分辨率", rx + "x" + ry, resSame ? "符合" : "注意",
+                    resSame ? "与上次确认一致"
+                            : ("上次确认的是 " + ux + "x" + uy + "，对不上 —— 通常是更新或崩溃后"
+                               + "设置被重置了，你看到的画面可能比想要的小一圈")));
+
+                string dvr = S(d, "bUseDynamicResolution");
+                L.Add(new GameCheck("动态分辨率", dvr.Length > 0 ? dvr : "读不到",
+                    dvr == "False" ? "符合" : "注意",
+                    dvr == "False" ? "关着，画面不会自己变糊" : "开着画面会自己变糊来保帧率"));
+
+                // ══ 画质 ══════════════════════════════════════════════════
+                // ★ 鸣潮【没有】sg.GlobalIlluminationQuality 和 sg.ReflectionQuality
+                //   （无畏契约那两项在这里读不到），它换成了下面这几个自己的键。
+                int rt = I(d, "sg.RayTracingQuality");
+                L.Add(new GameCheck("光线追踪", rt == 0 ? "关" : (rt < 0 ? "读不到" : ("档位 " + rt)),
+                    rt == 0 ? "符合" : "注意",
+                    rt == 0 ? "关着 —— 光追在鸣潮里是单项最贵的一项"
+                            : "开着。光追在鸣潮里非常吃显卡，画面收益主要在积水和夜景反射上"));
+
+                double rs = F(d, "sg.ResolutionQuality");
+                string rsTxt = rs < 0 ? "读不到" : (rs.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%");
+                L.Add(new GameCheck("渲染缩放", rsTxt,
+                    (rs < 0 || rs >= 100) ? "符合" : "注意",
+                    (rs < 0 || rs >= 100)
+                        ? "100% 表示按分辨率原生渲染，没有先缩放再放大"
+                        : "低于 100% 表示内部按更小的分辨率渲染再放大 —— 提帧明显但画面会发虚"));
+
+                int gq = I(d, "GameQualitySettingLevel");
+                L.Add(new GameCheck("画质总档", gq < 0 ? "读不到" : ("档位 " + gq),
+                    "参考", "游戏里那个「低/中/高/极高」的总开关，单项设置会被它覆盖"));
+
+                // 画质档位：只数【鸣潮真的有的】那些 sg.* 键。
+                string[] qk = new string[] {
+                    "sg.ViewDistanceQuality", "sg.AntiAliasingQuality", "sg.ShadowQuality",
+                    "sg.PostProcessQuality", "sg.TextureQuality", "sg.EffectsQuality",
+                    "sg.FoliageQuality", "sg.ShadingQuality",
+                    "sg.KuroRenderQuality", "sg.KuroLocalRenderQuality" };
+                int hi = 0, qn = 0;
+                foreach (string k in qk) { int q = I(d, k); if (q >= 0) { qn++; if (q >= 3) hi++; } }
+                L.Add(new GameCheck("画质档位", hi + " / " + qn + " 项在最高档",
+                    (qn > 0 && hi * 2 >= qn) ? "不符合" : "符合",
+                    "和竞技射击不同，鸣潮是看风景的游戏，画质全低未必是你要的 —— "
+                    + "这一项只报事实。真要省，先动阴影和体积雾，别动纹理"));
+
+                // ══ Engine.ini 进阶项 ══════════════════════════════════════
+                // 游戏 UI 里没有、只能写文件的那一层。Engine.ini 和 GameUserSettings.ini
+                // 同目录，是虚幻引擎读 cvar 的地方。
+                string eini = (dir != null && dir.Length > 0) ? Path.Combine(dir, "Engine.ini") : "";
+                Dictionary<string, string> ed = new Dictionary<string, string>();
+                bool eHas = false;
+                try { if (eini.Length > 0 && File.Exists(eini)) { ed = Parse(eini); eHas = true; } } catch { }
+                if (!eHas)
+                {
+                    L.Add(new GameCheck("Engine.ini", "没有",
+                        "参考", "进阶调优要写在这个文件里，现在还不存在"));
+                }
+                else
+                {
+                    // [SystemSettings] 是虚幻引擎读性能 cvar 的段。鸣潮默认不建这个段，
+                    // 所以「读不到」是正常的出厂状态，不是故障。
+                    int pool = I(ed, "r.Streaming.PoolSize");
+                    L.Add(new GameCheck("纹理流送池", pool < 0 ? "没设置" : (pool + " MB"),
+                        "参考",
+                        pool < 0 ? "没设置 —— 由引擎按显存自动定，多数机器这样最好"
+                                 : "手动钉了 " + pool + " MB。调太大挤占显存会崩，"
+                                   + "调太小纹理来不及加载会糊，非必要不建议动"));
+
+                    double sharp = F(ed, "r.Tonemapper.Sharpen");
+                    L.Add(new GameCheck("锐化", sharp < 0 ? "没设置" : sharp.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture),
+                        "参考", "0 到 1 之间。能抵一部分 TAA 造成的模糊，开太高会有白边"));
+
+                    int aniso = I(ed, "r.MaxAnisotropy");
+                    L.Add(new GameCheck("各向异性过滤", aniso < 0 ? "没设置" : (aniso + "x"),
+                        "参考", "斜着看地面的清晰度。16 是上限，代价很小"));
+                }
+
+                // ══ UserEngine.ini 遮蔽检查 ════════════════════════════════
+                // ★★ 这一条是调研里最值钱的发现，也是最容易白忙一场的坑：
+                //   `Client\Config\UserEngine.ini` 存在时，引擎读的是【它】，
+                //   而不是我们上面那个 `Saved\Config\WindowsNoEditor\Engine.ini`。
+                //   注意它在 Client\Config\ 下，不在 Saved\ 下 —— 两个地方差一层目录。
+                //   遮蔽发生时不报错、不提示，表现只是「改了没效果」，属于最难查的一类。
+                // 目录：dir = ...\Client\Saved\Config\WindowsNoEditor
+                //       saved = ...\Client\Saved  →  client = ...\Client
+                string client = (saved != null && saved.Length > 0) ? Path.GetDirectoryName(saved) : "";
+                string uini = (client != null && client.Length > 0)
+                    ? Path.Combine(client, "Config\\UserEngine.ini") : "";
+                bool uHas = false;
+                try { uHas = (uini.Length > 0 && File.Exists(uini)); } catch { }
+                if (uHas)
+                {
+                    L.Add(new GameCheck("UserEngine.ini", "存在", "注意",
+                        "它在 " + uini + "。这个文件存在时引擎读的是它、不是 Saved 下那个 Engine.ini —— "
+                        + "写在 Engine.ini 里的进阶调优会【静默失效】，不报错也不提示。"
+                        + "要么把设置写进它，要么把它删掉"));
+                }
+
+                // ══ 着色器预缓存 ═══════════════════════════════════════════
+                // 文件名里带 B<版本>，例如：
+                //   D3DDriverByteCodeBlob_V4318_D10400_S541925095_R161_B3.7_C0.ushaderprecache
+                //                                                      ^^^^ 游戏版本
+                // 游戏每次更新新增一组，旧的【不会】被顶掉，而是并存下来。
+                // 所以「该删的是旧的，不是全部」—— 删光等于把当前那组也扔了，
+                // 下次进游戏要重新编译一遍，开头卡一阵，纯亏。
+                // 另外这类 blob 是按【显卡 + 驱动】生成的（虚幻引擎里对应
+                // D3D12.PSO.DriverOptimizedDiskCache），换过驱动之后连当前那组也作废。
+                long psoBytes = 0, psoOldBytes = 0;
+                int psoFiles = 0, psoOldCount = 0;
+                string psoTag = "";
+                try
+                {
+                    string pso = (saved != null && saved.Length > 0) ? Path.Combine(saved, "PSO\\D3D12") : "";
+                    if (pso.Length > 0 && Directory.Exists(pso))
+                    {
+                        List<double> vers = new List<double>();
+                        List<string> paths = new List<string>();
+                        foreach (string f in Directory.GetFiles(pso, "*.ushaderprecache"))
+                        {
+                            double v = -1;
+                            try
+                            {
+                                System.Text.RegularExpressions.Match mm =
+                                    System.Text.RegularExpressions.Regex.Match(
+                                        Path.GetFileName(f), @"_B([0-9]+(?:\.[0-9]+)*)_");
+                                if (mm.Success)
+                                    double.TryParse(mm.Groups[1].Value,
+                                        System.Globalization.NumberStyles.Float,
+                                        System.Globalization.CultureInfo.InvariantCulture, out v);
+                            }
+                            catch { }
+                            vers.Add(v);
+                            paths.Add(f);
+                        }
+                        double best = -1;
+                        foreach (double v in vers) if (v > best) best = v;
+                        if (best > 0)
+                            psoTag = best.ToString("0.0#", System.Globalization.CultureInfo.InvariantCulture);
+                        for (int i = 0; i < paths.Count; i++)
+                        {
+                            long len = 0;
+                            try { len = new FileInfo(paths[i]).Length; } catch { }
+                            psoBytes += len; psoFiles++;
+                            // 版本号读不到的一律当「新的」留着 —— 宁可少删，不可误删
+                            if (best > 0 && vers[i] >= 0 && vers[i] < best)
+                            { psoOldBytes += len; psoOldCount++; }
+                        }
+                    }
+                }
+                catch { }
+                string psoTxt = psoFiles > 0 ? ((psoBytes / 1048576) + " MB / " + psoFiles + " 个") : "没有";
+                if (psoOldCount > 0) psoTxt += "（旧的 " + psoOldCount + " 个共 " + (psoOldBytes / 1048576) + " MB）";
+                L.Add(new GameCheck("着色器预缓存", psoTxt,
+                    psoOldBytes > 268435456 ? "注意" : "参考",
+                    psoOldCount > 0
+                        ? ("当前版本" + (psoTag.Length > 0 ? " B" + psoTag : "") + " 之外还留着 "
+                           + psoOldCount + " 个旧版本的，约 " + (psoOldBytes / 1048576)
+                           + " MB。文件名里的版本号对不上，引擎不会再读它们，只是占地方 —— "
+                           + "删旧的（保留最新那一组）不会让下次进游戏重新编译")
+                        : "每次进新场景时编译的着色器，攒着能让后续加载更快。"
+                          + "游戏更新后会新增一组，旧的会一起留着"));
+            }
 
             return L;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    //  着色器预缓存清理
+    // ────────────────────────────────────────────────────────────────────
+    internal static class Pso
+    {
+        /// <summary>
+        /// 删掉【旧版本】的着色器预缓存，保留最新那一组。
+        ///
+        /// 为什么是「清旧的」而不是「清空的」：文件名里那个 B&lt;版本&gt; 是游戏版本
+        /// （本机就是 _B3.6_ 和 _B3.7_ 并存），游戏每次更新新增一组，旧的那组引擎
+        /// 不会再读到 —— 纯占地方。要是全删了，当前那组也一起没，下次进游戏得把
+        /// 着色器重新编译一遍，开头卡一阵，纯粹白亏。
+        ///
+        /// 这类 blob 还是按【显卡 + 驱动】生成的。虚幻引擎里对应
+        /// D3D12.PSO.DriverOptimizedDiskCache，官方注释是「This cache contains data
+        /// specific to the hardware, driver, and machine that it was created on」——
+        /// 所以换过显卡驱动之后，连当前那组也作废了，那种情况下清一次的收益最大。
+        ///
+        /// 版本号解析不出来的文件一律保留：宁可少删，不可误删。
+        /// </summary>
+        public static string Clean(GameProfile g, bool dry)
+        {
+            string cfg = Games.ResolveConfig(g);
+            if (cfg.Length == 0) return "找不到 " + g.Name + " 的配置文件，定位不到缓存目录";
+
+            // 配置文件在 ...\Client\Saved\Config\WindowsNoEditor\ 下，
+            // 往上退三级才是 Saved，缓存就在 Saved\PSO\D3D12。
+            string dir = Path.GetDirectoryName(cfg);
+            string cfgDir = (dir != null) ? Path.GetDirectoryName(dir) : null;
+            string saved = (cfgDir != null) ? Path.GetDirectoryName(cfgDir) : null;
+            if (saved == null || saved.Length == 0)
+                return "配置路径比预期浅，找不到 Saved 目录：" + cfg;
+            // ★ 这里假设配置在 `...\Saved\Config\<子目录>\<文件>` 下 —— 鸣潮正是这个形状。
+            //   无畏契约的配置要经过 Collect() 去枚举账号目录，形状不一样，往上退三级
+            //   只会落到 `Saved\Config` 上。所以先验一下：宁可说「不认识这个形状」，
+            //   也不能拿一个凑出来的路径去删人家的文件。
+            if (!saved.EndsWith("\\Saved", StringComparison.OrdinalIgnoreCase))
+                return "这个游戏的配置目录形状不认识（推出的是 " + saved + "，不像 Saved 层），"
+                     + "为避免删错地方，本次什么都没做";
+
+            string pso = Path.Combine(saved, "PSO\\D3D12");
+            if (!Directory.Exists(pso)) return "没有这个缓存目录：" + pso;
+
+            // 游戏在跑就别动。运行中删缓存，退出时可能被内存里的旧值写回，白删一次。
+            foreach (string pn in g.Procs)
+            {
+                try
+                {
+                    if (System.Diagnostics.Process.GetProcessesByName(pn).Length > 0)
+                        return g.Name + " 正在运行，先退出游戏再清理";
+                }
+                catch { }
+            }
+
+            string[] files;
+            try { files = Directory.GetFiles(pso, "*.ushaderprecache"); }
+            catch (Exception ex) { return "读不了缓存目录：" + ex.Message; }
+            if (files.Length == 0) return "缓存目录是空的，没有可清理的文件";
+
+            // 每个文件解析出 B<版本>；解析失败记 -1
+            List<double> vers = new List<double>();
+            foreach (string f in files)
+            {
+                double v = -1;
+                try
+                {
+                    System.Text.RegularExpressions.Match mm =
+                        System.Text.RegularExpressions.Regex.Match(
+                            Path.GetFileName(f), @"_B([0-9]+(?:\.[0-9]+)*)_");
+                    if (mm.Success)
+                        double.TryParse(mm.Groups[1].Value,
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out v);
+                }
+                catch { }
+                vers.Add(v);
+            }
+
+            double best = -1;
+            foreach (double v in vers) if (v > best) best = v;
+            if (best <= 0)
+                return "这些缓存的文件名里读不出游戏版本，分不清哪一组是当前的 —— 一个都没删";
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            long freed = 0;
+            int gone = 0, kept = 0, failed = 0;
+            for (int i = 0; i < files.Length; i++)
+            {
+                string name = Path.GetFileName(files[i]);
+                long len = 0;
+                try { len = new FileInfo(files[i]).Length; } catch { }
+
+                if (vers[i] < 0 || vers[i] >= best) { kept++; continue; }
+
+                if (dry)
+                {
+                    freed += len; gone++;
+                    sb.AppendLine("  将要删除：" + name + "   " + (len / 1048576) + " MB");
+                    continue;
+                }
+                try
+                {
+                    File.Delete(files[i]);
+                    freed += len; gone++;
+                    sb.AppendLine("  已删除：" + name + "   " + (len / 1048576) + " MB");
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    sb.AppendLine("  删不掉：" + name + " —— " + ex.Message);
+                }
+            }
+
+            string tag = best.ToString("0.0#", System.Globalization.CultureInfo.InvariantCulture);
+            sb.Insert(0,
+                (dry ? "将要清理旧版着色器缓存（当前版本 B" : "已清理旧版着色器缓存（当前版本 B") + tag + "）\n"
+                + "  目录：" + pso + "\n"
+                + "  删 " + gone + " 个" + (failed > 0 ? "（其中 " + failed + " 个失败）" : "")
+                + "，保留 " + kept + " 个，共 " + (freed / 1048576) + " MB\n");
+            if (gone == 0) sb.AppendLine("  旧版本的一个都没有，没什么可清的");
+            return sb.ToString();
         }
     }
 
@@ -1886,6 +2291,194 @@ namespace Vcb
         public double Pct;      // 占「单核」的百分比（不是占总 CPU）
         public string Note;
         public BgRow(string n, double p, string t) { Name = n; Pct = p; Note = t; }
+    }
+
+    /// <summary>
+    /// 往游戏配置目录里的 Engine.ini 写「游戏 UI 里没有、只能改文件」的进阶项。
+    ///
+    /// ★ 现在【只写一项】：r.Tonemapper.Sharpen=0.4。
+    ///   不是懒得写更多，是查不到可信取值 —— 网上能查到的鸣潮 cvar 表里，有社区
+    ///   共识取值的就这一个（0.4）。其余的：r.Streaming.PoolSize 没有鸣潮推荐值，
+    ///   sg.KuroRenderQuality / sg.KuroLocalRenderQuality 的 0-3 到底是什么语义也
+    ///   查不到，r.ScreenPercentage 和 sg.ResolutionQuality 谁覆盖谁同样查不到。
+    ///   猜数值写进去等于拿用户的画面做实验，所以宁可不做。
+    ///
+    /// 三条硬规矩：
+    ///   1) 游戏在跑就不写 —— 运行中改 ini，退出时可能被内存里的旧值写回、改动被吞掉；
+    ///   2) 有 UserEngine.ini 就不写 —— 引擎读的是那个文件，写 Engine.ini 会【静默失效】；
+    ///   3) 备份只做一次（Engine.ini.vcb.bak）—— 这样 .bak 里永远是【原始】那一版，
+    ///      反复 apply / revert 也不会把改过的内容当成原始版本存下来。
+    ///
+    /// 改写是逐行的，只动 r.Tonemapper.Sharpen 那一行；文件有没有 BOM、是 CRLF 还是
+    /// LF，原样保留 —— 不能因为改一行就把整个文件的换行风格换掉。
+    /// </summary>
+    internal static class EngIni
+    {
+        public const string Key = "r.Tonemapper.Sharpen";
+        public const string Val = "0.4";
+        private const string Section = "[SystemSettings]";
+        private const string BakSuffix = ".vcb.bak";
+
+        /// <summary>定位 Engine.ini，并顺手挡掉两种「写了也没用」的情况。</summary>
+        private static string PathOf(GameProfile g, out string err)
+        {
+            err = "";
+            string cfg = Games.ResolveConfig(g);
+            if (cfg.Length == 0)
+            {
+                err = "找不到 " + g.Name + " 的配置文件，定位不到 Engine.ini";
+                return "";
+            }
+            // Engine.ini 和 GameUserSettings.ini 在同一个目录里
+            // （鸣潮：Client\Saved\Config\WindowsNoEditor\），所以不用再往上退。
+            string dir = Path.GetDirectoryName(cfg);
+            if (dir == null || dir.Length == 0)
+            {
+                err = "配置文件路径比预期浅，定位不到 Engine.ini：" + cfg;
+                return "";
+            }
+            // 遮蔽检查：Client\Config\UserEngine.ini 存在时，引擎读的是它。
+            string client = Path.GetDirectoryName(dir);
+            if (client != null && client.Length > 0)
+            {
+                string u = Path.Combine(client, "Config\\UserEngine.ini");
+                if (File.Exists(u))
+                {
+                    err = "这个客户端有 UserEngine.ini（" + u + "），引擎读的是它、不是 Engine.ini。"
+                        + "现在往 Engine.ini 里写会【静默失效】—— 不报错也不提示。"
+                        + "要么先处理掉那个文件，要么就别写。";
+                    return "";
+                }
+            }
+            string ini = Path.Combine(dir, "Engine.ini");
+            if (!File.Exists(ini))
+            {
+                err = "没有这个文件：" + ini;
+                return "";
+            }
+            return ini;
+        }
+
+        private static bool Running(GameProfile g)
+        {
+            for (int i = 0; i < g.Procs.Length; i++)
+            {
+                try
+                {
+                    if (System.Diagnostics.Process.GetProcessesByName(g.Procs[i]).Length > 0)
+                        return true;
+                }
+                catch { }
+            }
+            return false;
+        }
+
+        /// <summary>读进来，同时把「有没有 BOM」和「用哪种换行」记下来，写回时照着还原。</summary>
+        private static string ReadIni(string path, out bool bom, out string nl)
+        {
+            byte[] b = File.ReadAllBytes(path);
+            bom = (b.Length >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF);
+            int off = bom ? 3 : 0;
+            string t = new UTF8Encoding(false).GetString(b, off, b.Length - off);
+            nl = t.Contains("\r\n") ? "\r\n" : "\n";
+            return t;
+        }
+
+        private static void WriteIni(string path, string text, bool bom)
+        {
+            // ★ UTF8Encoding.GetBytes 不会吐 BOM（那是 GetPreamble/StreamWriter 的事），
+            //   所以要带 BOM 的话得自己拼在前面 —— 不能指望 ctor 那个参数。
+            byte[] body = new UTF8Encoding(false).GetBytes(text);
+            if (!bom) { File.WriteAllBytes(path, body); return; }
+            byte[] all = new byte[body.Length + 3];
+            all[0] = 0xEF; all[1] = 0xBB; all[2] = 0xBF;
+            Array.Copy(body, 0, all, 3, body.Length);
+            File.WriteAllBytes(path, all);
+        }
+
+        /// <summary>
+        /// 写入 r.Tonemapper.Sharpen。已经有一行就改那一行，没有就在 [SystemSettings] 段尾
+        /// 插一行，连段都没有就在文件末尾新开一段。
+        /// </summary>
+        public static string Apply(GameProfile g)
+        {
+            string err;
+            string ini = PathOf(g, out err);
+            if (ini.Length == 0) return err;
+            if (Running(g))
+                return "游戏正在运行 —— 运行中改 ini 可能被内存里的旧值写回、改动被吞掉。请先退出游戏。";
+
+            bool bom;
+            string nl;
+            string text = ReadIni(ini, out bom, out nl);
+
+            string bak = ini + BakSuffix;
+            // 只在第一次改之前留底。这样 .bak 里永远是【原始】那一版，
+            // 反复 apply / revert 也不会把已经改过的内容当成原始版本盖进去。
+            if (!File.Exists(bak)) File.WriteAllBytes(bak, File.ReadAllBytes(ini));
+
+            string[] lines = text.Replace("\r\n", "\n").Split('\n');
+            int secStart = -1, secEnd = -1;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string t = lines[i].Trim();
+                if (t.Length >= 2 && t[0] == '[' && t[t.Length - 1] == ']')
+                {
+                    if (string.Equals(t, Section, StringComparison.OrdinalIgnoreCase)) secStart = i;
+                    else if (secStart >= 0 && secEnd < 0) secEnd = i;   // 下一个段头 = 本段结尾
+                }
+            }
+            if (secStart >= 0 && secEnd < 0) secEnd = lines.Length;
+
+            List<string> list = new List<string>(lines);
+            string row = Key + "=" + Val;
+            string how;
+            if (secStart < 0)
+            {
+                int end = list.Count;
+                while (end > 0 && list[end - 1].Trim().Length == 0) end--;   // 退到最后一个非空行
+                list.Insert(end, "");
+                list.Insert(end + 1, Section);
+                list.Insert(end + 2, row);
+                how = "文件里本来没有 " + Section + " 段，已在末尾新开一段写入";
+            }
+            else
+            {
+                int at = -1;
+                for (int i = secStart + 1; i < secEnd; i++)
+                {
+                    if (list[i].Trim().StartsWith(Key + "=", StringComparison.OrdinalIgnoreCase)) { at = i; break; }
+                }
+                if (at >= 0) { list[at] = row; how = "原来那一行已改成 " + row; }
+                else { list.Insert(secEnd, row); how = "已在 " + Section + " 段尾插入一行"; }
+            }
+
+            WriteIni(ini, string.Join(nl, list.ToArray()), bom);
+            return "已写入 " + row + "\r\n"
+                 + "  " + how + "\r\n"
+                 + "  文件：" + ini + "\r\n"
+                 + "  原始备份：" + bak + "（改之前的那一版，随时可还原）\r\n"
+                 + "  这一项没有官方文档背书，是社区在用的取值，界面上标了「未经验证」。\r\n"
+                 + "  不想要了点「还原 Engine.ini」，会把备份整份盖回去。";
+        }
+
+        /// <summary>从备份整份还原。</summary>
+        public static string Revert(GameProfile g)
+        {
+            string err;
+            string ini = PathOf(g, out err);
+            if (ini.Length == 0) return err;
+            if (Running(g)) return "游戏正在运行，先退出游戏再还原。";
+            string bak = ini + BakSuffix;
+            if (!File.Exists(bak))
+                return "没有找到备份 " + bak + " —— 说明还没从这里改过，不用还原。";
+            try
+            {
+                File.Copy(bak, ini, true);
+                return "已还原：" + ini + "\r\n  来源：" + bak + "\r\n  下次进游戏就是没改过的样子了。";
+            }
+            catch (Exception ex) { return "还原失败：" + ex.Message; }
+        }
     }
 
     internal static class SysAudit
@@ -2463,6 +3056,10 @@ namespace Vcb
             "securityhealthservice", "securityhealthsystray", "msmpeng", "nissrv",
             // 游戏本体和它的客户端
             "valorant", "valorant-win64-shipping", "r5apex", "r5apex_dx12",
+            // 鸣潮的主程序。★ 这个名字是虚幻引擎的默认名，别的 UE 游戏也叫它 ——
+            // 但放进这里只会「少压一个游戏进程」，方向是安全的；
+            // 反过来（漏了它）会把正在跑的游戏本体压到能效核上，那才是事故。
+            "client-win64-shipping",
             "riot client", "riotclientservices", "riotclientux",
             // 显卡驱动 / 显示链路
             "nvcontainer", "nvdisplay.container", "nvidia web helper", "nvsphelper64",

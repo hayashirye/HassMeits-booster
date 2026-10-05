@@ -377,7 +377,7 @@ class Engine {
 
     return GameInfo(
       key: key,
-      name: key == 'apex' ? 'Apex Legends' : '无畏契约',
+      name: gameLongName(key),
       exe: exe,
       procs: procs,
       tier: tier,
@@ -468,6 +468,20 @@ class Engine {
   Future<RunResult> uninstall() => run(['uninstall']);
   Future<RunResult> gpupref() => run(['gpupref']);
   Future<RunResult> autocheck() => run(['autocheck'], timeout: const Duration(seconds: 60));
+
+  // 着色器预缓存的「预览 / 清理」。★ 为什么是两个命令名而不是 `psoclean <key> dry`：
+  // 引擎的命令行解析只留【一个】位置参数（one\Ui.cs 那个 for 循环，最后一个非 --
+  // 参数胜出），`psoclean wuwa dry` 传进去的 arg 会变成 "dry"，游戏就找错了。
+  // 所以预览和真删拆成两个命令，各自只吃一个参数。界面上永远先 dry 拿到清单、
+  // 摆给用户看，确认了才 clean —— 删文件这一步不能悄悄发生。
+  Future<RunResult> psoDry(String gameKey) => run(['psodry', gameKey]);
+  Future<RunResult> psoClean(String gameKey) => run(['psoclean', gameKey]);
+
+  // Engine.ini 的进阶项（目前只有 r.Tonemapper.Sharpen=0.4 一项）。
+  // 同样是两个命令名，原因见上面 psodry/psoclean 那段注释。
+  // 引擎那边会拒绝三种情况：游戏正在运行、有 UserEngine.ini 遮蔽、文件不存在。
+  Future<RunResult> engIniApply(String gameKey) => run(['engini', gameKey]);
+  Future<RunResult> engIniRevert(String gameKey) => run(['enginirevert', gameKey]);
 
   /// 持续负载性能测试 —— 跑 CLI 的 `bench`。
   ///

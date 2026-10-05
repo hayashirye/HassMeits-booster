@@ -7,11 +7,11 @@
 
 | | |
 | --- | --- |
-| 当前版本 | **v1.0** |
+| 当前版本 | **v1.1** |
 | 下载 | [Releases](https://github.com/hayashirye/HassMeits-booster/releases) |
 | 界面 | Flutter（Material You） |
 | 引擎 | C# / .NET Framework 4.x，无需安装运行时 |
-| 支持游戏 | 无畏契约（VALORANT）、Apex Legends |
+| 支持游戏 | 无畏契约（VALORANT）、Apex Legends、鸣潮（Wuthering Waves） |
 
 ---
 
@@ -116,7 +116,7 @@ Release 里还有一个 **`portable.zip`**，解压即用，不写注册表、�
 | **主页** | 实时频率 / 占用率仪表盘；三个强度可选；① 应用优化 · ② 增强游戏进程 · ④ 一键还原 |
 | **体检** | 只读。15 项设置逐条列出：左边是项目名和它为什么能提高频率，右边是进度条（绿色填充 = 应用后会到的位置，竖线 = 你机器当前的值），最右标着 **已应用 / 待应用 / 本机不支持** |
 | **性能测试** | 内置跑分，对比优化前后的单核 / 多核表现 |
-| **游戏专项** | 按游戏（无畏契约 / Apex）分别配置；查看是否登记、守护是否开启、配置文件是否找到 |
+| **游戏专项** | 按游戏（无畏契约 / Apex / 鸣潮）分别配置；查看登记状态、守护状态、配置文件的逐项体检 |
 | **日志** | 最近 60 秒的 CPU 占用率 / 频率双曲线 + 完整操作日志 |
 
 **上手顺序**：先切到「体检」挑强度（默认 **均衡**，推荐先试这个）→ 点「应用这套设置」
@@ -169,6 +169,31 @@ Release 里还有一个 **`portable.zip`**，解压即用，不写注册表、�
 .\ValorantBoost.exe gpupref       # GPU 图形首选项
 .\ValorantBoost.exe probe         # 环境探测
 ```
+
+### 游戏专项
+
+```powershell
+.\ValorantBoost.exe audit wuwa            # 按游戏体检：逐项报告配置文件的实际情况
+.\ValorantBoost.exe psodry wuwa           # 预览：列出可清理的旧版着色器缓存，一个文件都不动
+.\ValorantBoost.exe psoclean wuwa         # 真删旧版着色器缓存（保留当前版本那一组）
+.\ValorantBoost.exe engini wuwa           # 往 Engine.ini 写进阶项（r.Tonemapper.Sharpen=0.4）
+.\ValorantBoost.exe enginirevert wuwa     # 从 .vcb.bak 整份还原 Engine.ini
+```
+
+游戏代号是 `valorant` / `apex` / `wuwa`。不带代号时 `audit` 是系统审计。
+
+> **这些命令「一个命令只吃一个参数」。** 引擎的 CLI 只有一个位置参数槽，
+> 写 `psoclean wuwa dry` 会让 `dry` 顶掉 `wuwa`，然后退回第一个游戏去删。
+> 所以预览和真删是两个命令名（`psodry` / `psoclean`），不是同一个加开关。
+
+`psoclean` 和 `engini` 都要求**游戏没在运行**，在跑就直接拒绝。`engini` 第一次
+写入前会把原文件备份成 `Engine.ini.vcb.bak`（**只备份一次**，所以 `.bak` 里永远
+是最原始那一版），`enginirevert` 就是拿它整份盖回去。
+
+`engini` 只写一项，这是刻意的：能查到的鸣潮 cvar 表里，有社区共识取值的就
+`r.Tonemapper.Sharpen` 这一个。`r.Streaming.PoolSize` 没有鸣潮推荐值、
+`sg.KuroRenderQuality` 的 0–3 语义也查不到 —— 猜个数值写进去等于拿你的画面做实验。
+界面上这一项标着「未经验证」。
 
 ### 核心绑定（混合架构专用）
 

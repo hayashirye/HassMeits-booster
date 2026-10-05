@@ -33,7 +33,7 @@ class GamePage extends StatelessWidget {
               const SizedBox(height: 12),
               _daemonCard(g),
               const SizedBox(height: 12),
-              _configCard(g),
+              _configCard(context, g),
             ],
           ),
         );
@@ -242,7 +242,7 @@ class GamePage extends StatelessWidget {
 
   // -------------------------------------------------------- 配置文件检查
 
-  Widget _configCard(GameInfo g) {
+  Widget _configCard(BuildContext context, GameInfo g) {
     final head = g.configFound
         ? g.configPath
         : (g.configPath.isEmpty ? '没有找到配置文件' : '${g.configPath}（不存在）');
@@ -272,6 +272,33 @@ class GamePage extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 ),
+                // ★ 这个按钮只在引擎真的报出了「着色器预缓存」这一行时才出现 ——
+                //   按数据判断，不是按游戏 key 写死。引擎那边对不认识配置形状的
+                //   游戏会拒绝执行（见 Core.cs 的 Pso.Clean），所以没这一行就没按钮，
+                //   用户不会点到一个只会报错的按钮。
+                if (g.checks.any((c) => c.name == '着色器预缓存')) ...[
+                  const SizedBox(width: 10),
+                  PressButton(
+                    label: '清理旧缓存',
+                    onTap: st.auditing ? null : () => _psoClean(context, g),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                ],
+                // ★ 锐化这一项同样是「按数据出现」，而且按钮的文案跟着当前状态变：
+                //   没写就是「写入锐化 0.4」，已经写了就变成「还原 Engine.ini」。
+                //   这样永远只有一个按钮、不会让人猜哪个是当前状态。
+                if (_sharpenOn(g) != null) ...[
+                  const SizedBox(width: 10),
+                  PressButton(
+                    label: _sharpenOn(g)! ? '还原 Engine.ini' : '写入锐化 0.4',
+                    onTap: st.auditing
+                        ? null
+                        : () => _sharpen(context, g, _sharpenOn(g)!),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  ),
+                ],
               ],
             ),
           ),
@@ -330,6 +357,123 @@ class GamePage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  // ---------------------------------------------------- Engine.ini 锐化
+  //
+  // 锐化那一项当前是什么状态：null = 这个游戏没有这一项（按钮不出现），
+  // false = 还没写过，true = 已经写进去了。故意从检查结果里读，不再另外问引擎一次。
+  bool? _sharpenOn(GameInfo g) {
+    for (final c in g.checks) {
+      if (c.name == '锐化') return c.value != '没设置';
+    }
+    return null;
+  }
+
+  // 写入要确认，还原不要 —— 风险是不对称的：写入是往用户的游戏配置里加东西，
+  // 还原只是把备份整份盖回去（而备份就是【原始】那一版）。给还原也弹个确认框，
+  // 只会让人以为「还原」也是危险操作。
+  //
+  // ★ 为什么值只有 0.4 这一项：查得到的鸣潮 cvar 表里，有社区共识取值的就这一个。
+  //   r.Streaming.PoolSize 没有鸣潮推荐值，sg.KuroRenderQuality /
+  //   sg.KuroLocalRenderQuality 的 0-3 语义也查不到 —— 猜个数值写进去，等于拿
+  //   用户的画面做实验。所以引擎只实现了这一项，界面上如实标「未经验证」。
+  Future<void> _sharpen(BuildContext context, GameInfo g, bool on) async {
+    if (!on) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('写入锐化设置'),
+          content: const SingleChildScrollView(
+            child: Text(
+              '会往 Engine.ini 的 [SystemSettings] 段写一行：\n\n'
+              '    r.Tonemapper.Sharpen=0.4\n\n'
+              '作用：抵消一部分 TAA 造成的画面发糊。\n'
+              '代价：开太高会有白边，所以用的是社区在用的 0.4。\n\n'
+              '★ 这一项没有官方文档背书，取值来自社区，标为「未经验证」。\n'
+              '★ 改之前会整份备份成 Engine.ini.vcb.bak，随时能一键还原。\n'
+              '★ 游戏正在运行时引擎会拒绝写入 —— 那种情况下退出游戏时改动可能被吞掉。',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('写入'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !context.mounted) return;
+    }
+
+    final res = on
+        ? await Engine.i.engIniRevert(g.key)
+        : await Engine.i.engIniApply(g.key);
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(res.text.trim().replaceAll('\n', '　'))),
+    );
+    // 重跑一遍 audit —— 「锐化」那一行和这个按钮的文案都要跟着变
+    await st.reloadGame(st.gameKey);
+  }
+
+  // ---------------------------------------------------- 旧着色器缓存清理
+
+  // 分两步，永远是「先预览、后确认」：
+  //   1) psodry   —— 引擎只列清单，一个文件都不动
+  //   2) psoclean —— 用户点了确认才真删
+  // 删掉的是游戏自己生成的、属于【旧版本】的着色器预缓存（鸣潮那边攒了几百 MB，
+  // 换显卡驱动之后旧的那批还会继续失效堆积）。引擎下次进游戏会重新编译、重新攒
+  // 回来，所以代价只是「接下来一段时间进新场景略慢」。不碰存档、不碰游戏本体。
+  //
+  // ★ 这里刻意不按游戏 key 写死 —— 按钮出不出现由引擎有没有报出「着色器预缓存」
+  //   那一行决定。引擎对配置目录形状不认识的游戏会拒绝执行（Core.cs 的 Pso.Clean），
+  //   所以不会出现「点了只会报错」的按钮。
+  Future<void> _psoClean(BuildContext context, GameInfo g) async {
+    final dry = await Engine.i.psoDry(g.key);
+    if (!context.mounted) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('清理旧版着色器缓存'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: SingleChildScrollView(
+            child: SelectableText(
+              '${dry.text.trim()}\n\n'
+              '确认后才会真的删除。之后再进游戏时，引擎会重新编译着色器 ——\n'
+              '第一次进新场景会比平时慢一点，攒回来之后恢复正常。\n'
+              '不会碰存档，也不会碰游戏本体的任何文件。',
+              style: const TextStyle(fontFamily: 'Consolas', fontSize: 13),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('确认清理'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !context.mounted) return;
+
+    final res = await Engine.i.psoClean(g.key);
+    if (!context.mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(res.text.trim().replaceAll('\n', '　'))),
+    );
+    // 重跑一遍 audit，把「着色器预缓存」那一行的数字刷新成清理后的样子
+    await st.reloadGame(st.gameKey);
   }
 }
 
