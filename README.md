@@ -244,7 +244,7 @@ Release 里还有一个 **`portable.zip`**，解压即用，不写注册表、�
 
 ## 6. 针对 Core Ultra 7 155H
 
-你的 CPU 是 Meteor Lake：**6 个 P 核（Redwood Cove，带超线程）+ 8 个 E 核（Crestmont）
+假如你的 CPU 是 Meteor Lake：**6 个 P 核（Redwood Cove，带超线程）+ 8 个 E 核（Crestmont）
 + 2 个 LP-E 核 = 22 线程**。程序启动时会读 WMI + 注册表识别它，并在界面上打印；
 识别为混合架构时会**自动开启大小核相关优化**。
 
