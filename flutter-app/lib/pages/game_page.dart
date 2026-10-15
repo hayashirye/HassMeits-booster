@@ -33,6 +33,8 @@ class GamePage extends StatelessWidget {
               const SizedBox(height: 12),
               _daemonCard(g),
               const SizedBox(height: 12),
+              _rulesCard(),
+              const SizedBox(height: 12),
               _configCard(context, g),
             ],
           ),
@@ -238,6 +240,121 @@ class GamePage extends StatelessWidget {
     }
     if (bad) return '已压制 ${names.length} 类（但本机掩码对不上，未必真生效）：';
     return '已压制 ${names.length} 类，只跑能效核（P 核腾给游戏，加速照常）：';
+  }
+
+  // ------------------------------------------------------------ 调度规则
+
+  /// 用户自定义的调度规则（rules.txt）。
+  ///
+  /// 放在「后台程序压制」下面是有意的：那张卡说的是「现在压了谁」，
+  /// 这张卡说的是「以后该压谁」，顺着读因果是通的。
+  ///
+  /// ★ 这张卡是【只读】的 —— 改规则请直接编辑 rules.txt。不是偷懒：
+  ///   引擎本来就以那个文件为准，而且它按文件修改时间自动失效缓存，
+  ///   改完存盘下一轮就生效，根本不需要通知引擎。在表格里做开关反而
+  ///   要再造一套「界面状态 vs 文件状态」的同步，还得处理写文件失败。
+  ///   文字文件本身就是这个功能的界面。
+  Widget _rulesCard() {
+    final r = st.rules;
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(2, 14, 2, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 0),
+            child: Row(
+              children: [
+                const CardTitle('调度规则'),
+                const Spacer(),
+                PressButton(
+                  label: '打开 rules.txt',
+                  onTap: r.path.isEmpty ? null : () => Engine.i.openPath(r.path),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                ),
+                const SizedBox(width: 10),
+                PressButton(
+                  label: '刷新',
+                  onTap: st.busy ? null : st.refreshRules,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Text(
+              r.total == 0
+                  ? '还没有读到规则。'
+                  : '共 ${r.total} 条：压到能效核 ${r.pinnedCount} 条，'
+                      '绝不碰 ${r.keepCount} 条，已停用 ${r.offCount} 条。',
+              style: TextStyle(color: T.fgDim, fontSize: T.fsSmall),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Tooltip(
+              message: r.path,
+              child: Text(
+                r.path.isEmpty ? '（还没拿到文件路径）' : r.path,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: T.fgFaint,
+                  fontSize: T.fsTiny,
+                  fontFamily: 'Consolas',
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            // 表格自己滚，所以这里给一个固定高度
+            height: (34 + r.entries.length * 28.0).clamp(120.0, 360.0),
+            child: DataGrid(
+              playToken: r.entries.length,
+              headHeight: 32,
+              rowHeight: 28,
+              cols: const [
+                GridCol('进程名', flex: 46),
+                GridCol('动作', flex: 20, badge: true),
+                GridCol('状态', flex: 20, badge: true),
+                GridCol('备注', flex: 90),
+              ],
+              rows: [
+                for (final e in r.entries)
+                  GridRow(
+                    [
+                      e.proc,
+                      e.keep ? 'keep' : 'e',
+                      e.on ? '启用' : '停用',
+                      e.note,
+                    ],
+                    kind: e.kind,
+                    tooltip: '${e.proc}\n'
+                        '动作：${e.keep ? '绝不碰（keep）' : '压到能效核（e）'}\n'
+                        '状态：${e.on ? '启用' : '停用（留着但不执行）'}'
+                        '${e.note.isEmpty ? '' : '\n备注：${e.note}'}\n\n'
+                        '★ 要改就直接编辑 rules.txt，存盘就生效，不用重启守护。',
+                  ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 2),
+            child: Text(
+              '进程名末尾带 * 是前缀匹配（obs* 会把 obs64、obs32 一起管住）。'
+              '硬编码的保护名单永远生效 —— 这里只能往里加，不能把反作弊减出去。',
+              style: TextStyle(color: T.fgFaint, fontSize: T.fsTiny),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // -------------------------------------------------------- 配置文件检查

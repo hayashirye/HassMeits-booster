@@ -3070,25 +3070,335 @@ namespace Vcb
             "deepseek harness",
         };
 
-        /// <summary>值得压的后台程序。按名字匹配，同名多开全压。</summary>
-        private static readonly string[] Candidates = new string[] {
-            // 游戏加速器
-            "leigod", "leishensdk", "leishengame", "leishenaccelerator",
-            "uu", "uubooster", "uugamebooster", "netch", "clash", "v2ray", "xray", "sing-box",
-            // 动态壁纸 —— 纯后台，压它零风险
-            "wallpaper64", "wallpaper32",
-            // 平台 / 启动器
-            "steamwebhelper", "epicgameslauncher", "epicwebhelper", "wegame", "tencentdl",
-            // 录屏 / 直播 / 覆盖层
-            "recorder", "obs64", "obs32", "bdcam", "action",
-            "gamebar", "gamebarpresencewriter", "gamebarftserver",
-            // 通讯 / 浏览器
-            "oopz", "discord", "qq", "wechat", "msedge", "chrome", "firefox", "msedgewebview2",
-            // 厂商管家
-            "huntercamp", "hunteryard", "pcmanager",
-            // 其他常见常驻
-            "onedrive", "dropbox", "googledrivefs", "adobedesktop",
+        /// <summary>
+        /// 出厂默认规则。**只在第一次运行时用来生成 rules.txt** —— 生成之后用户改的是
+        /// 那份文件，这里再改也影响不到已经生成过的用户（想回到出厂状态，删掉 rules.txt
+        /// 再跑一次即可）。
+        ///
+        /// 每行的格式和 rules.txt 里完全一样，四个字段用 | 分隔：
+        ///     进程名 | 动作 | 启用 | 备注
+        /// 动作只有两个值：e = 压到能效核；keep = 绝不碰（等于往保护名单里加一条）。
+        /// 进程名末尾可以写 * 做前缀匹配（比如 obs* 一次盖住 obs64 / obs32 / obs-browser）。
+        ///
+        /// 包名比原来的纯名字数组长，但值得：这样生成的 rules.txt 自带分组说明，
+        /// 用户打开就知道每条是干嘛的，不用回来看源码。
+        /// </summary>
+        private static readonly string[] DefaultRules = new string[] {
+            // ── 游戏加速器 ─────────────────────────────────────────────────
+            "leigod|e|1|雷神加速器",
+            "leishensdk|e|1|雷神 SDK",
+            "leishengame|e|1|雷神游戏组件",
+            "leishenaccelerator|e|1|雷神加速器（旧名）",
+            "uu|e|1|网易 UU 加速器",
+            "uubooster|e|1|UU 加速器组件",
+            "uugamebooster|e|1|UU 游戏加速组件",
+            "netch|e|1|Netch",
+            "clash|e|1|Clash",
+            "v2ray|e|1|V2Ray",
+            "xray|e|1|Xray",
+            "sing-box|e|1|sing-box",
+            // ── 动态壁纸 ── 纯后台，压它零风险 ────────────────────────────
+            "wallpaper64|e|1|Wallpaper Engine",
+            "wallpaper32|e|1|Wallpaper Engine（32 位）",
+            // ── 平台 / 启动器 ─────────────────────────────────────────────
+            "steamwebhelper|e|1|Steam 内嵌浏览器",
+            "epicgameslauncher|e|1|Epic 启动器",
+            "epicwebhelper|e|1|Epic 内嵌浏览器",
+            "wegame|e|1|WeGame",
+            "tencentdl|e|1|腾讯下载组件",
+            // ── 录屏 / 直播 / 覆盖层 ──────────────────────────────────────
+            "recorder|e|1|通用录屏",
+            "obs64|e|1|OBS（64 位）",
+            "obs32|e|1|OBS（32 位）",
+            "bdcam|e|1|Bandicam",
+            "action|e|1|Action! 录屏",
+            "gamebar|e|1|Xbox Game Bar",
+            "gamebarpresencewriter|e|1|Game Bar 状态写入",
+            "gamebarftserver|e|1|Game Bar 服务",
+            // ── 通讯 / 浏览器 ─────────────────────────────────────────────
+            "oopz|e|1|Oopz 语音",
+            "discord|e|1|Discord",
+            "qq|e|1|QQ",
+            "wechat|e|1|微信",
+            "msedge|e|1|Edge",
+            "chrome|e|1|Chrome",
+            "firefox|e|1|Firefox",
+            "msedgewebview2|e|1|Edge WebView2 宿主",
+            // ── 厂商管家 ──────────────────────────────────────────────────
+            "huntercamp|e|1|联想电脑管家",
+            "hunteryard|e|1|联想管家组件",
+            "pcmanager|e|1|腾讯电脑管家",
+            // ── 其他常见常驻 ──────────────────────────────────────────────
+            "onedrive|e|1|OneDrive",
+            "dropbox|e|1|Dropbox",
+            "googledrivefs|e|1|Google 云端硬盘",
+            "adobedesktop|e|1|Adobe 桌面组件",
+            // ── 下面这些出厂是关着的，列出来是当例子 ──────────────────────
+            "obs*|keep|0|示例：前缀匹配 + keep（绝不碰）。想用就把启用改成 1",
         };
+
+        /// <summary>用户可编辑的规则文件。放在和 pinned.txt 同一个目录。</summary>
+        public static string RulesPath { get { return Path.Combine(Engine.Dir, "rules.txt"); } }
+
+        // ────────────────────────────────────────────────────────────────
+        //  规则文件：用户自己定义「哪些进程压到能效核、哪些绝不碰」
+        //
+        //  在这之前这些是写死在 DefaultRules / Protect 里的 —— 想加一个自己的
+        //  后台程序就得改代码重编译。现在放成一份文本文件，用户随时能改，守护
+        //  每一轮都会重新看一眼。
+        //
+        //  ★ 唯一的硬边界：Protect 那批（反作弊、dwm、系统进程、游戏本体、显卡
+        //    驱动、本工具自己）永远不能被规则解除。规则里的 keep 只能往里【加】，
+        //    没有任何写法能让 vgc 被压制 —— 这条不是可配置项，是安全底线。
+        // ────────────────────────────────────────────────────────────────
+
+        /// <summary>一条调度规则。</summary>
+        public sealed class Rule
+        {
+            public string Proc = "";
+            public bool Keep;        // true = 绝不碰；false = 压到能效核
+            public bool On = true;
+            public string Note = "";
+
+            public string Action { get { return Keep ? "keep" : "e"; } }
+
+            /// <summary>写回文件的形态，和 DefaultRules 里那些行同构。</summary>
+            public string Line
+            {
+                get { return Proc + "|" + Action + "|" + (On ? "1" : "0") + "|" + Note; }
+            }
+        }
+
+        /// <summary>进程名规范化：小写、去 .exe 后缀、去首尾空白。界面也用它，所以是 public。</summary>
+        public static string Norm(string s)
+        {
+            string n = (s ?? "").Trim().ToLowerInvariant();
+            if (n.EndsWith(".exe")) n = n.Substring(0, n.Length - 4);
+            return n.Trim();
+        }
+
+        /// <summary>规则名匹配进程名。规则名末尾带 * 就是前缀匹配。</summary>
+        private static bool MatchName(string rule, string proc)
+        {
+            string r = Norm(rule);
+            string p = Norm(proc);
+            if (r.Length == 0 || p.Length == 0) return false;
+            if (r.EndsWith("*")) return p.StartsWith(r.Substring(0, r.Length - 1));
+            return r == p;
+        }
+
+        private static List<Rule> ParseRules(string[] lines)
+        {
+            List<Rule> rs = new List<Rule>();
+            foreach (string raw in lines)
+            {
+                string s = (raw ?? "").Trim();
+                if (s.Length == 0 || s.StartsWith("#")) continue;
+                string[] f = s.Split('|');
+                Rule r = new Rule();
+                r.Proc = Norm(f.Length > 0 ? f[0] : "");
+                if (r.Proc.Length == 0) continue;
+                r.Keep = (f.Length > 1 && f[1].Trim().ToLowerInvariant() == "keep");
+                string on = (f.Length > 2) ? f[2].Trim().ToLowerInvariant() : "1";
+                r.On = !(on == "0" || on == "off" || on == "false" || on == "no");
+                r.Note = (f.Length > 3) ? f[3].Trim() : "";
+                // 同名重复时后来者覆盖 —— 用户手改文件时不会被重复行搞糊涂
+                int dup = -1;
+                for (int i = 0; i < rs.Count; i++) if (rs[i].Proc == r.Proc) { dup = i; break; }
+                if (dup >= 0) rs[dup] = r; else rs.Add(r);
+            }
+            return rs;
+        }
+
+        // ★ 缓存 + 按文件的最后写入时间失效。
+        //   不是为了省一次读盘 —— IsProtected / IsCandidate 是【按进程】调的，
+        //   Apply 一轮就是 42 次，真去读 42 遍文件太蠢。带时间戳的缓存让用户改完
+        //   文件下一轮就生效（守护是常驻进程，不能靠重启来加载），又只花一次 stat。
+        private static List<Rule> _rules;
+        private static DateTime _rulesStamp = DateTime.MinValue;
+
+        /// <summary>
+        /// 读规则。文件不存在就按出厂默认生成一份 —— 老用户升级上来行为完全不变。
+        /// </summary>
+        public static List<Rule> LoadRules()
+        {
+            try
+            {
+                if (!File.Exists(RulesPath)) { SeedRules(); _rules = null; }
+                DateTime st = File.GetLastWriteTimeUtc(RulesPath);
+                if (_rules != null && st == _rulesStamp) return _rules;
+                _rules = ParseRules(File.ReadAllLines(RulesPath, Encoding.UTF8));
+                _rulesStamp = st;
+                return _rules;
+            }
+            catch
+            {
+                // 读不出来就用出厂默认，绝不让「读文件失败」变成「一个都不压」
+                if (_rules != null) return _rules;
+                return ParseRules(DefaultRules);
+            }
+        }
+
+        private static void WriteRulesFile(string text)
+        {
+            try
+            {
+                // ★ 先写临时文件再改名。守护随时可能正在读这个文件，直接覆写得半截
+                //   会让它读到一条残缺的规则（只有进程名、没有动作）。改名是原子的。
+                string tmp = RulesPath + ".tmp";
+                File.WriteAllText(tmp, text, new UTF8Encoding(false));
+                if (File.Exists(RulesPath)) File.Delete(RulesPath);
+                File.Move(tmp, RulesPath);
+                _rules = null;   // 让下一次 LoadRules 重新解析
+            }
+            catch { }
+        }
+
+        private static void SeedRules()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("# ValorantBoost 调度规则 v1");
+            sb.AppendLine("#");
+            sb.AppendLine("# 每行一条，四个字段用 | 分隔：");
+            sb.AppendLine("#     进程名 | 动作 | 启用 | 备注");
+            sb.AppendLine("#   动作：e    = 压到能效核（只让它跑 E 核，把 P 核腾给游戏）");
+            sb.AppendLine("#         keep = 绝不碰（往保护名单里加一条）");
+            sb.AppendLine("#   启用：1 = 生效，0 = 停用（备注留着，只是不执行）");
+            sb.AppendLine("#");
+            sb.AppendLine("# 进程名末尾写 * 就是前缀匹配，例如 obs* 一次盖住 obs64 / obs32 / obs-browser。");
+            sb.AppendLine("# 大小写和 .exe 后缀都不用管，程序自己按小写、去后缀来比。");
+            sb.AppendLine("# 备注随便写，只给人看。");
+            sb.AppendLine("#");
+            sb.AppendLine("# ★ 硬编码的保护名单（反作弊、dwm、系统进程、游戏本体、显卡驱动、");
+            sb.AppendLine("#   本工具自己）永远生效 —— 这里只能往里【加】，不能从里面【减】。");
+            sb.AppendLine("#   写 keep 是有用的；但没有任何写法能让 vgc 之类的反作弊被压制。");
+            sb.AppendLine("#");
+            sb.AppendLine("# 改完不用重启软件，守护每一轮都会重新看一眼这个文件。");
+            sb.AppendLine("# 想恢复出厂默认：把这个文件删掉，下一轮会自动重新生成一份。");
+            sb.AppendLine("");
+            sb.AppendLine("# ── 出厂默认 ────────────────────────────────────────────────");
+            foreach (string d in DefaultRules) sb.AppendLine(d);
+            WriteRulesFile(sb.ToString());
+        }
+
+        /// <summary>把规则列表写回文件，保留用户在文件开头自己写的那一段注释。</summary>
+        private static void SaveRules(List<Rule> rs)
+        {
+            List<string> head = new List<string>();
+            try
+            {
+                if (File.Exists(RulesPath))
+                {
+                    foreach (string l in File.ReadAllLines(RulesPath, Encoding.UTF8))
+                    {
+                        if (l.TrimStart().StartsWith("#")) head.Add(l);
+                        else break;   // 只保留开头连续的那一段注释
+                    }
+                }
+            }
+            catch { }
+
+            StringBuilder sb = new StringBuilder();
+            if (head.Count == 0)
+            {
+                sb.AppendLine("# ValorantBoost 调度规则 v1");
+                sb.AppendLine("# 每行一条，四个字段用 | 分隔：进程名 | 动作 | 启用 | 备注");
+                sb.AppendLine("# 动作：e = 压到能效核，keep = 绝不碰。启用：1 / 0。");
+                sb.AppendLine("# 进程名末尾写 * 是前缀匹配。");
+                sb.AppendLine("# 硬编码的保护名单永远生效，这里只能往里加、不能减。");
+            }
+            else foreach (string h in head) sb.AppendLine(h);
+            sb.AppendLine("");
+            foreach (Rule r in rs) sb.AppendLine(r.Line);
+            WriteRulesFile(sb.ToString());
+        }
+
+        /// <summary>所有【启用】的 e 类规则名，按文件里的顺序。Apply / Report 走这个。</summary>
+        public static List<string> CandidateNames()
+        {
+            List<string> r = new List<string>();
+            foreach (Rule x in LoadRules())
+                if (x.On && !x.Keep && !r.Contains(x.Proc)) r.Add(x.Proc);
+            return r;
+        }
+
+        /// <summary>规则的完整清单，给界面和 rules 命令用。</summary>
+        public static string RulesReport()
+        {
+            List<Rule> rs = LoadRules();
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("调度规则  （文件：" + RulesPath + "）");
+            sb.AppendLine("--------------------------------------------------");
+            if (rs.Count == 0)
+            {
+                sb.AppendLine("  （一条规则都没有。删掉上面那个文件可以恢复出厂默认。）");
+                return sb.ToString();
+            }
+            int eOn = 0, kOn = 0, off = 0;
+            foreach (Rule r in rs)
+            {
+                if (!r.On) off++;
+                else if (r.Keep) kOn++;
+                else eOn++;
+            }
+            sb.AppendLine("共 " + rs.Count + " 条：压到能效核 " + eOn + " 条，绝不碰 " + kOn
+                        + " 条，已停用 " + off + " 条。");
+            sb.AppendLine();
+            sb.AppendLine("  进程名                 动作    状态    备注");
+            sb.AppendLine("  ------------------------------------------------------------");
+            foreach (Rule r in rs)
+            {
+                sb.AppendLine("  " + PadR(r.Proc, 22)
+                            + PadR(r.Keep ? "keep" : "e", 8)
+                            + PadR(r.On ? "启用" : "停用", 8)
+                            + r.Note);
+            }
+            sb.AppendLine();
+            sb.AppendLine("改这一份文件就行，不用重启软件。硬编码的保护名单永远生效，这里只能加不能减。");
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 新增或更新一条规则（按进程名认，同名就改）。
+        /// proc 只允许字母数字和 . _ - * 空格，避免有人往文件里塞 | 或换行把格式搞坏。
+        /// </summary>
+        public static bool SetRule(string proc, string action, bool on, string note, out string err)
+        {
+            err = "";
+            string p = Norm(proc);
+            if (p.Length == 0) { err = "进程名不能是空的"; return false; }
+            foreach (char c in p)
+            {
+                if (!(char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-' || c == '*' || c == ' ' || c == '+'))
+                { err = "进程名里有不支持的字符：'" + c + "'（只允许字母数字和 . _ - * 空格 +）"; return false; }
+            }
+            List<Rule> rs = LoadRules();
+            Rule r = new Rule();
+            r.Proc = p;
+            r.Keep = ((action ?? "").Trim().ToLowerInvariant() == "keep");
+            r.On = on;
+            r.Note = (note ?? "").Replace("|", "/").Replace("\r", " ").Replace("\n", " ").Trim();
+            int at = -1;
+            for (int i = 0; i < rs.Count; i++) if (rs[i].Proc == p) { at = i; break; }
+            if (at >= 0) rs[at] = r; else rs.Add(r);
+            SaveRules(rs);
+            return true;
+        }
+
+        /// <summary>删掉一条规则。返回 false 表示本来就没有这一条。</summary>
+        public static bool DelRule(string proc, out string err)
+        {
+            err = "";
+            string p = Norm(proc);
+            if (p.Length == 0) { err = "进程名不能是空的"; return false; }
+            List<Rule> rs = LoadRules();
+            int at = -1;
+            for (int i = 0; i < rs.Count; i++) if (rs[i].Proc == p) { at = i; break; }
+            if (at < 0) { err = "没有这一条规则：" + p; return false; }
+            rs.RemoveAt(at);
+            SaveRules(rs);
+            return true;
+        }
 
         public static string PinnedPath { get { return Path.Combine(Engine.Dir, "pinned.txt"); } }
 
@@ -3143,15 +3453,20 @@ namespace Vcb
 
         public static bool IsProtected(string name)
         {
-            string n = (name ?? "").ToLowerInvariant();
+            string n = Norm(name);
             foreach (string p in Protect) if (n == p) return true;
+            // ★ 规则文件里的 keep 只能【扩大】保护范围，永远不能缩小上面那批死的。
+            //   所以是先查死的、再查活的 —— 反过来写就等于让用户能用一条规则
+            //   把反作弊从保护名单里「减」出去，那是封号级别的错误。
+            foreach (Rule r in LoadRules())
+                if (r.On && r.Keep && MatchName(r.Proc, name)) return true;
             return false;
         }
 
         public static bool IsCandidate(string name)
         {
-            string n = (name ?? "").ToLowerInvariant();
-            foreach (string c in Candidates) if (n == c) return true;
+            foreach (Rule r in LoadRules())
+                if (r.On && !r.Keep && MatchName(r.Proc, name)) return true;
             return false;
         }
 
@@ -3335,7 +3650,8 @@ namespace Vcb
             // 原先是先 GetProcessesByName 探一次在不在跑、再让 Pin 自己查一次，
             // 40 个候选名字就是 80 次全量枚举 —— 每 60 秒来一轮，全是白花的。
             Dictionary<string, List<int>> snap = ProcSnap.Take();
-            foreach (string c in Candidates)
+            // ★ 名单来自 rules.txt，不再是写死的数组 —— 用户加一条，下一轮就生效。
+            foreach (string c in CandidateNames())
             {
                 List<int> pids = ProcSnap.Pids(snap, c);
                 if (pids.Count == 0) continue;
@@ -3396,7 +3712,7 @@ namespace Vcb
             sb.AppendLine("进程名                 实例  当前亲和性");
             sb.AppendLine("--------------------------------------------------");
             int hit = 0;
-            foreach (string c in Candidates)
+            foreach (string c in CandidateNames())
             {
                 System.Diagnostics.Process[] ps;
                 try { ps = System.Diagnostics.Process.GetProcessesByName(c); } catch { continue; }

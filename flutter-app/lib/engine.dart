@@ -483,6 +483,66 @@ class Engine {
   Future<RunResult> engIniApply(String gameKey) => run(['engini', gameKey]);
   Future<RunResult> engIniRevert(String gameKey) => run(['enginirevert', gameKey]);
 
+  // ---------------------------------------------------------------- 调度规则
+
+  /// 读出 rules.txt 里现在有哪些规则。
+  ///
+  /// ★ 表格数据是从【文件】里读的，不是从 `rules` 命令的表格输出里抠的 ——
+  ///   那张表是按 PadR 补空格对齐的，中英文混排之后按列切字符串很容易错位。
+  ///   `rules` 命令在这里只干一件事：把文件路径告诉我们（它第一行里带着），
+  ///   顺便保证文件不存在时会被播种出来。
+  Future<RuleReport> rules() async {
+    final r = await run(['rules']);
+    // 第一行形如：调度规则  （文件：C:\ProgramData\ValorantBoost\rules.txt）
+    final m = RegExp(r'文件：(.+?)）').firstMatch(r.text);
+    final path = m?.group(1)?.trim() ?? '';
+    if (path.isEmpty) return RuleReport.empty;
+    try {
+      final lines = await File(path).readAsLines();
+      return RuleReport(path, parseRuleLines(lines));
+    } catch (_) {
+      // 文件读不到（被占用、权限、刚被删）就返回空表，让界面显示 0 条，
+      // 而不是抛出去把整页打挂。
+      return RuleReport(path, const []);
+    }
+  }
+
+  /// 改一条规则、或者加一条新的（同名就改）。action 只认 `e` 和 `keep`。
+  ///
+  /// ★ 四个字段必须挤进【一个】token 用 `|` 拼起来 —— 引擎的命令行解析只留
+  ///   最后一个位置参数，`ruleset obs64 e 1 备注` 传进去会只剩「备注」。
+  Future<RunResult> ruleSet(String proc, String action, bool on, String note) =>
+      run(['ruleset', '$proc|$action|${on ? '1' : '0'}|$note']);
+
+  Future<RunResult> ruleDel(String proc) => run(['ruledel', proc]);
+
+  /// 把 rules.txt 的每一行解析成规则。
+  ///
+  /// 跳空行与 `#` 注释；字段不足三个的当脏数据跳过 —— 宁可少显示一条，
+  /// 也不能让一行写坏的文件把整张表带崩。
+  /// 和引擎 `CorePin.ParseRules` 的容错规则保持一致：动作转小写，
+  /// 启用字段认 `0` / `off` / `false` / `no` 四种写法为「停用」。
+  static List<RuleEntry> parseRuleLines(List<String> lines) {
+    final out = <RuleEntry>[];
+    for (final raw in lines) {
+      final s = raw.trim();
+      if (s.isEmpty || s.startsWith('#')) continue;
+      final f = s.split('|');
+      if (f.length < 3) continue;
+      final proc = f[0].trim();
+      if (proc.isEmpty) continue;
+      final v = f[2].trim().toLowerCase();
+      final on = !(v == '0' || v == 'off' || v == 'false' || v == 'no');
+      out.add(RuleEntry(
+        proc,
+        f[1].trim().toLowerCase(),
+        on,
+        f.length >= 4 ? f.sublist(3).join('|').trim() : '',
+      ));
+    }
+    return out;
+  }
+
   /// 持续负载性能测试 —— 跑 CLI 的 `bench`。
   ///
   /// ★★ 这**不是** C# GUI 上那个「开始性能测试」按钮的测试：

@@ -2700,6 +2700,7 @@ namespace Vcb
                     || cmd == "audit" || cmd == "gpupref" || cmd == "bgcpu"
                     || cmd == "install" || cmd == "uninstall" || cmd == "autocheck"
                     || cmd == "pin" || cmd == "unpin" || cmd == "pinstat"
+                    || cmd == "rules" || cmd == "ruleset" || cmd == "ruledel"
                     || cmd == "gametime"
                     || cmd == "show"
                     || cmd == "psoclean"
@@ -2781,6 +2782,13 @@ namespace Vcb
                     return CorePin.Restore(out n);
                 }
                 if (cmd == "pinstat") return CorePin.Report();
+                // 调度规则：列清单 / 新增或改一条 / 删一条。
+                // ★ ruleset 只吃【一个】参数，四个字段用 | 拼在同一个 token 里 ——
+                //   这个 CLI 的参数循环只留最后一个非 -- 参数，`ruleset obs64 e 1 备注`
+                //   传进来会只剩下「备注」。界面那边也按同一个格式拼。
+                if (cmd == "rules") return CorePin.RulesReport();
+                if (cmd == "ruleset") return CmdRuleSet(arg);
+                if (cmd == "ruledel") return CmdRuleDel(arg);
                 if (cmd == "install")
                 {
                     string m; bool ok = AutoStart.Install(out m);
@@ -3023,6 +3031,60 @@ namespace Vcb
         private static string CmdPsoClean(string arg, bool dry)
         {
             return Pso.Clean(Games.Find(arg == null ? "" : arg.Trim()), dry);
+        }
+
+        /// <summary>
+        /// 新增或改一条调度规则。参数是【一个】token，四个字段用 | 分隔：
+        ///     ruleset 进程名|动作|启用|备注
+        ///     例：ruleset obs64|e|1|我的录屏
+        ///         ruleset myapp|keep|1|别动它
+        ///         ruleset leigod|e|0|先停用试试
+        /// 动作只有 e（压到能效核）和 keep（绝不碰）两种；启用是 1 / 0。
+        /// 字段可以少写：只给进程名就等于「压到能效核 + 启用」。
+        /// ★ 为什么挤成一个 token：命令行的参数循环只留最后一个位置参数，
+        ///   分开写会只剩下最后一个字段。跟 psodry/psoclean 是同一个坑。
+        /// </summary>
+        private static string CmdRuleSet(string arg)
+        {
+            string s = (arg == null) ? "" : arg.Trim();
+            if (s.Length == 0)
+                return "用法：ruleset 进程名|动作|启用|备注\r\n"
+                     + "  例：ruleset obs64|e|1|我的录屏\r\n"
+                     + "      ruleset myapp|keep|1|别动它\r\n"
+                     + "  动作：e = 压到能效核，keep = 绝不碰。启用：1 / 0。";
+
+            string[] f = s.Split('|');
+            string proc = f[0].Trim();
+            string action = (f.Length > 1) ? f[1].Trim() : "e";
+            bool on = true;
+            if (f.Length > 2)
+            {
+                string v = f[2].Trim().ToLowerInvariant();
+                on = !(v == "0" || v == "off" || v == "false" || v == "no");
+            }
+            string note = (f.Length > 3) ? f[3].Trim() : "";
+
+            string err;
+            if (!CorePin.SetRule(proc, action, on, note, out err))
+                return "没改成：" + err;
+            return "已保存规则：" + CorePin.Norm(proc)
+                 + "  动作=" + ((action.ToLowerInvariant() == "keep") ? "keep（绝不碰）" : "e（压到能效核）")
+                 + "  状态=" + (on ? "启用" : "停用")
+                 + (note.Length > 0 ? ("  备注=" + note) : "")
+                 + "\r\n  文件：" + CorePin.RulesPath
+                 + "\r\n  守护下一轮就会按新规则走，不用重启。";
+        }
+
+        /// <summary>删掉一条规则。参数就是进程名，一个词。</summary>
+        private static string CmdRuleDel(string arg)
+        {
+            string proc = (arg == null) ? "" : arg.Trim();
+            if (proc.Length == 0) return "用法：ruledel 进程名";
+            string err;
+            if (!CorePin.DelRule(proc, out err)) return "没删成：" + err;
+            return "已删除规则：" + CorePin.Norm(proc)
+                 + "\r\n  文件：" + CorePin.RulesPath
+                 + "\r\n  注意：删掉规则不会把已经压着的进程放回去 —— 要放回去敲 unpin。";
         }
 
         /// <summary>

@@ -38,6 +38,9 @@ class AppState extends ChangeNotifier {
   /// 引擎报回来的两个掩码 + 进程表（掩码是引擎实际会用的，不是我们猜的）
   PinReport pinReport = PinReport.empty;
 
+  /// 调度规则（rules.txt）。引擎每轮都会重读那个文件，所以这里刷新一下就同步了。
+  RuleReport rules = RuleReport.empty;
+
   // ---- 本机环境（每次启动都重新检测）----
   MachineInfo? machine;
   bool probing = false;
@@ -147,6 +150,17 @@ class AppState extends ChangeNotifier {
     if (!engineReady) return;
     pinReport = await eng.pinstat();
     pins = pinReport.rows;
+    notifyListeners();
+  }
+
+  /// 重新读一遍 rules.txt。
+  ///
+  /// ★ 不需要通知引擎「我改过了」—— 引擎那边是拿文件的最后写入时间做缓存失效的，
+  ///   所以这里读一次拿到的就是最新的。用户直接在记事本里改文件、回来点「刷新」
+  ///   就能看到，不用重启守护（守护是常驻进程，本来也没法靠重启加载）。
+  Future<void> refreshRules() async {
+    if (!engineReady) return;
+    rules = await eng.rules();
     notifyListeners();
   }
 

@@ -26,6 +26,12 @@ boost-log.txt
 # 「还原初始设置」的还原点
 boost-backup.txt
 auto-backup.txt
+# 调度规则与压制名单 —— 用户自己编辑的运行期数据，每台机器都不一样。
+# 引擎把这三个写在它自己 exe 的旁边：仓库根那份就在仓库根，
+# 装到系统的那份在 C:\ProgramData\ValorantBoost\。
+rules.txt
+pinned.txt
+pin-on-game.txt
 
 # ------------------------------------------------------------
 #  Flutter / Dart 构建缓存

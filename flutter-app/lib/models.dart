@@ -281,3 +281,37 @@ class RunResult {
   bool get ok => code == 0;
   String get text => out.trim().isEmpty ? err.trim() : out.trim();
 }
+
+/// 一条调度规则，对应 rules.txt 里的一行：`进程名|动作|启用|备注`。
+///
+/// ★ 这个类刻意是【从文件里读出来的】，不是从 `rules` 命令的表格输出里抠的 ——
+///   那张表用 PadR 补齐对齐，中英文混排之后按列切字符串很容易错位；
+///   而文件本身是 `|` 分隔的，切开来不会有歧义。
+///   `rules` 命令只用来问出文件路径（它第一行里带着）。
+class RuleEntry {
+  final String proc;
+  final String action; // e = 压到能效核；keep = 绝不碰
+  final bool on; // 启用列，false 就是停用（备注留着，只是不执行）
+  final String note;
+  const RuleEntry(this.proc, this.action, this.on, this.note);
+
+  bool get keep => action == 'keep';
+
+  /// 给表格那一列上色用：keep 是「刻意不动」（中性偏警告），
+  /// 压到能效核才是真正在干活（正常色），停用的一律灰掉。
+  int get kind => !on ? 2 : (keep ? 3 : 0);
+}
+
+/// `rules` 命令 + rules.txt 解析出来的整体状态。
+class RuleReport {
+  final String path;
+  final List<RuleEntry> entries;
+  const RuleReport(this.path, this.entries);
+
+  static const RuleReport empty = RuleReport('', []);
+
+  int get total => entries.length;
+  int get pinnedCount => entries.where((r) => r.on && !r.keep).length;
+  int get keepCount => entries.where((r) => r.on && r.keep).length;
+  int get offCount => entries.where((r) => !r.on).length;
+}
